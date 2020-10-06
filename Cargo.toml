@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "flat_serialize_macro",
+    "flat_serialize",
+]
