@@ -6,11 +6,12 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 
 use quote::{quote, quote_spanned};
-use quote::IdentFragment;
 
 use syn::{braced, parse_macro_input, token, Field, Ident, Result, Token, Type};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
+use syn::visit::Visit;
+use syn::visit_mut::VisitMut;
 
 #[proc_macro]
 pub fn flat_serialize(input: TokenStream) -> TokenStream {
@@ -22,21 +23,24 @@ pub fn flat_serialize(input: TokenStream) -> TokenStream {
 
     let field_paths: Vec<Option<ExternalLenFieldInfo>> = input.fields.iter().map(|f| {
         if let syn::Type::Array(array) = &f.ty {
-            if let syn::Expr::Field(field) = &array.len {
-                if let syn::Expr::Path(path) = &*field.base {
-                    if path.path.segments[0].ident == "self" {
-                        match &field.member {
-                            syn::Member::Named(name) => {
-                                size_fields.insert(name.clone(), f.ident.clone().unwrap());
-                            },
-                            syn::Member::Unnamed(_) => {},
-                        }
-                        return Some(ExternalLenFieldInfo {
-                            ty: (*array.elem).clone(),
-                            len: field.member.clone(),
-                        })
-                    }
+            let mut has_self = FindSelf(false);
+            has_self.visit_expr(&array.len);
+            let FindSelf(has_self) = has_self;
+            // println!("{} | {}", quote!{ #f }, has_self);
+            if has_self {
+                let mut len_field = GetLenField(None);
+                len_field.visit_expr(&array.len);
+                // let mut len = array.len.clone();
+                // let mut remove_self = RemoveSelf(true, None);
+                // remove_self.visit_expr_mut(&mut len);
+                if let Some(name) = len_field.0.clone() {
+                    size_fields.entry(name)
+                        .or_insert(f.ident.clone().unwrap());
                 }
+                return Some(ExternalLenFieldInfo {
+                    ty: (*array.elem).clone(),
+                    len_expr: array.len.clone(),
+                })
             }
         }
         None
@@ -108,6 +112,64 @@ pub fn flat_serialize(input: TokenStream) -> TokenStream {
     expanded.into()
 }
 
+struct FindSelf(bool);
+
+impl<'ast> Visit<'ast> for FindSelf {
+    fn visit_path_segment(&mut self, i: &'ast syn::PathSegment) {
+        self.0 |= i.ident == "self"
+    }
+}
+
+struct GetLenField(Option<Ident>);
+
+impl<'ast> Visit<'ast> for GetLenField {
+    fn visit_expr(&mut self, expr: &'ast syn::Expr) {
+        if let syn::Expr::Field(field) = expr {
+            if let syn::Expr::Path(path) = &*field.base {
+                if path.path.segments[0].ident == "self" {
+                    let name = match &field.member {
+                        syn::Member::Named(name) => name.clone(),
+                        syn::Member::Unnamed(_) => panic!("unnamed fields not supported"),
+                    };
+                    self.0 = Some(name)
+                }
+            }
+        }
+    }
+}
+
+struct RemoveSelf(bool, Option<Ident>);
+
+impl VisitMut for RemoveSelf {
+    fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
+        if let syn::Expr::Field(field) = expr {
+            if let syn::Expr::Path(path) = &mut *field.base {
+                if path.path.segments[0].ident == "self" {
+                    let name = match &field.member {
+                        syn::Member::Named(name) => name.clone(),
+                        syn::Member::Unnamed(_) => panic!("unnamed fields not supported"),
+                    };
+                    if self.0 {
+                        assert_eq!(self.1, None);
+                        self.1 = Some(name.clone())
+                    }
+                    *expr = syn::Expr::Path(syn::ExprPath{
+                        attrs: Default::default(),
+                        qself: None,
+                        path: syn::Path {
+                            leading_colon: None,
+                            segments: Some::<syn::PathSegment>(name.into()).into_iter().collect(),
+                        },
+                    })
+                }
+            }
+        } else {
+            self.0 = false;
+            syn::visit_mut::visit_expr_mut(self, expr)
+        }
+    }
+}
+
 // TODO
 #[allow(dead_code)]
 enum FlatSerialize {
@@ -158,20 +220,50 @@ impl Parse for FlatSerializeStruct {
 
 struct ExternalLenFieldInfo {
     ty: syn::Type,
-    len: syn::Member,
+    len_expr: syn::Expr,
 }
 
 impl ExternalLenFieldInfo {
-    fn len_name(&self) -> TokenStream2 {
-        match &self.len {
-            //TODO create a unique name?
-            syn::Member::Named(name) => {
-                quote!{ #name }
-            },
-            syn::Member::Unnamed(_) => quote_spanned!{
-                self.len.span().unwrap()=>
-                compile_error!("only named length fields are supported")
-            },
+    fn len_from_bytes(&self) -> TokenStream2 {
+        let mut lfb = SelfReplacer(|name| syn::parse_quote!{ #name.cloned().unwrap() as usize });
+        let mut len = self.len_expr.clone();
+        lfb.visit_expr_mut(&mut len);
+        quote! { #len }
+    }
+
+    fn counter_expr(&self) -> TokenStream2 {
+        let mut ce = SelfReplacer(|name| syn::parse_quote!{ (*#name) as usize });
+        let mut len = self.len_expr.clone();
+        ce.visit_expr_mut(&mut len);
+        quote! { #len }
+    }
+
+    fn err_size_expr(&self) -> TokenStream2 {
+        let mut ese = SelfReplacer(|name| syn::parse_quote!{
+            (#name.as_ref().map(|c| **c).unwrap_or(0)) as usize
+        });
+        let mut len = self.len_expr.clone();
+        ese.visit_expr_mut(&mut len);
+        quote! { #len }
+    }
+}
+
+struct SelfReplacer<F: FnMut(&Ident) -> syn::Expr>(F);
+
+impl<F: FnMut(&Ident) -> syn::Expr> VisitMut for SelfReplacer<F> {
+    fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
+        if let syn::Expr::Field(field) = expr {
+            if let syn::Expr::Path(path) = &mut *field.base {
+                if path.path.segments[0].ident == "self" {
+                    let name = match &field.member {
+                        syn::Member::Named(name) => name,
+                        syn::Member::Unnamed(_) => panic!("unnamed fields not supported"),
+                    };
+                    *expr = self.0(name)
+                }
+            }
+        } else {
+            syn::visit_mut::visit_expr_mut(self, expr)
         }
     }
 }
@@ -293,11 +385,11 @@ fn try_wrap_field(
 ) -> TokenStream2 {
     match info {
         Some(info @ ExternalLenFieldInfo{..}) => {
-            let count = info.len_name();
+            let count = info.len_from_bytes();
             let ty = &info.ty;
             quote!{
                 let __packet_macro_read_len: usize = {
-                    let __packet_macro_count = #count.cloned().unwrap() as usize;
+                    let __packet_macro_count = #count;
                     let __packet_macro_size = ::std::mem::size_of::<#ty>() * __packet_macro_count;
                     let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
                     if __packet_macro_bytes.len() < __packet_macro_size {
@@ -363,11 +455,11 @@ fn fill_vec_with_field(field: &Field, info: &Option<ExternalLenFieldInfo>) -> To
     let ident = field.ident.as_ref().unwrap();
     match info {
         Some(info) => {
-            let count = info.len_name();
+            let count = info.counter_expr();
             let ty = &info.ty;
             quote! {
                 unsafe {
-                    let __packet_field_count = *#count as usize;
+                    let __packet_field_count = #count;
                     let __packet_field_size =
                         ::std::mem::size_of::<#ty>() * __packet_field_count;
                     let __packet_field_field_bytes = #ident.as_ptr() as *const u8;
@@ -395,11 +487,11 @@ fn fill_vec_with_field(field: &Field, info: &Option<ExternalLenFieldInfo>) -> To
 fn err_size(ty: &TokenStream2, info: &Option<ExternalLenFieldInfo>) -> TokenStream2 {
     match info {
         Some(info @ ExternalLenFieldInfo{..}) => {
-            let count = info.len_name();
+            let count = info.err_size_expr();
             let ty = &info.ty;
             quote! {
                 (::std::mem::size_of::<#ty>()
-                    * (#count.as_ref().map(|c| **c).unwrap_or(0)) as usize)
+                    * (#count))
             }
         },
         None => quote!{ ::std::mem::size_of::<#ty>() },
@@ -417,9 +509,9 @@ fn size_fn(info: &Option<ExternalLenFieldInfo>, nominal_ty: &Type) -> TokenStrea
     match info {
         Some(info) => {
             let ty = &info.ty;
-            let count = info.len_name();
+            let count = info.counter_expr();
             quote! {
-                (::std::mem::size_of::<#ty>() * ((*#count) as usize))
+                (::std::mem::size_of::<#ty>() * (#count))
             }
         }
         None => {
