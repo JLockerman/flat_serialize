@@ -90,7 +90,7 @@ pub fn flat_serialize(input: TokenStream) -> TokenStream {
                 #len
             }
 
-            impl<'a> FlatSerialize<'a> for Ref<'a> {
+            impl<'a> FlattenableRef<'a> for Ref<'a> {
                 unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
                 where Self: Sized + 'a {
                     Ref::try_ref(bytes)
@@ -448,7 +448,7 @@ fn try_wrap_field(
         return quote! {
             let __packet_macro_read_len: usize = {
                 let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
-                let (__packet_macro_field, __packet_macro_rem_bytes) = match <#ty as FlatSerialize>::try_ref(__packet_macro_bytes) {
+                let (__packet_macro_field, __packet_macro_rem_bytes) = match <#ty as FlattenableRef>::try_ref(__packet_macro_bytes) {
                     Ok((f, b)) => (f, b),
                     Err(..) => break #break_label
                 };
@@ -511,7 +511,7 @@ fn fill_vec_with_trait(field: &Field) -> TokenStream2 {
     let ident = field.ident.as_ref().unwrap();
     let ty = &field.ty;
     quote! {
-        <#ty as FlatSerialize>::fill_vec(&#ident, __packet_macro_bytes);
+        <#ty as FlattenableRef>::fill_vec(&#ident, __packet_macro_bytes);
     }
 }
 
@@ -571,7 +571,7 @@ fn fill_vec_with_field(field: &Field, info: &Option<ExternalLenFieldInfo>) -> To
 fn err_size(ty: &TokenStream2, info: &Option<ExternalLenFieldInfo>, use_trait: bool) -> TokenStream2 {
     if use_trait {
         return quote! {
-            <#ty as FlatSerialize>::min_len()
+            <#ty as FlattenableRef>::min_len()
         }
     }
     match info {
@@ -603,7 +603,7 @@ fn size_fn(
     let nominal_ty = &field.ty;
     if use_trait {
         return quote! {
-            <#nominal_ty as FlatSerialize>::len(&#ident)
+            <#nominal_ty as FlattenableRef>::len(&#ident)
         }
     }
     match info {

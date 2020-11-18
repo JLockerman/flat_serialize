@@ -6,7 +6,7 @@ pub enum WrapErr {
 
 // TODO add a Metadata argument to try_ref and type to the trait for more
 //      advanced deserialization?
-pub trait FlatSerialize<'a>: Sized + 'a {
+pub trait FlattenableRef<'a>: Sized + 'a {
     unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>;
     fn fill_vec(&self, vec: &mut Vec<u8>);
     fn len(&self) -> usize;
@@ -69,7 +69,7 @@ mod tests {
                 &[][..])
         );
         let (Basic::Ref{ header, data, data2, array }, rem) = unsafe {
-            <Basic::Ref as FlatSerialize>::try_ref(&bytes).unwrap()
+            <Basic::Ref as FlattenableRef>::try_ref(&bytes).unwrap()
         };
         assert_eq!(
             (header, data, data2, array, rem),
@@ -128,7 +128,7 @@ mod tests {
                 &[][..])
         );
         let (nested::Ref{ prefix, basic: Basic::Ref{ header, data, data2, array }}, rem) = unsafe {
-            <nested::Ref as FlatSerialize>::try_ref(&bytes).unwrap()
+            <nested::Ref as FlattenableRef>::try_ref(&bytes).unwrap()
         };
         assert_eq!(
             (prefix, header, data, data2, array, rem),
