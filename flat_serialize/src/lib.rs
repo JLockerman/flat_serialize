@@ -4,6 +4,8 @@ pub enum WrapErr {
     NotEnoughBytes(usize),
 }
 
+// TODO add a Metadata argument to try_ref and type to the trait for more
+//      advanced deserialization?
 pub trait FlatSerialize<'a>: Sized + 'a {
     unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>;
     fn fill_vec(&self, vec: &mut Vec<u8>);
@@ -85,7 +87,7 @@ mod tests {
     flat_serialize!{
         struct nested {
             prefix: u64,
-            #[flat_serialize::use_trait]
+            #[flat_serialize::flatten]
             basic: Basic::Ref<'a>,
         }
     }

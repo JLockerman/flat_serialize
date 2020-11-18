@@ -26,7 +26,7 @@ pub fn flat_serialize(input: TokenStream) -> TokenStream {
         .enumerate()
         .map(|(i, f)| {
             let crate_name = quote::format_ident!("flat_serialize");
-            let att_name = quote::format_ident!("use_trait");
+            let att_name = quote::format_ident!("flatten");
             let path = syn::parse_quote!{ #crate_name :: #att_name };
             let uses_trait = f.attrs.iter().any(|att| att.path == path);
             if uses_trait {
