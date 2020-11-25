@@ -7,7 +7,7 @@ use proc_macro2::TokenStream as TokenStream2;
 
 use quote::{quote, quote_spanned};
 
-use syn::{braced, parse_macro_input, token, Field, Ident, Result, Token, Type};
+use syn::{braced, parse_macro_input, token, Expr, Field, Ident, Result, Token, Type};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::visit::Visit;
@@ -16,47 +16,20 @@ use syn::visit_mut::VisitMut;
 #[proc_macro]
 pub fn flat_serialize(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
-    let input = parse_macro_input!(input as FlatSerializeStruct);
+    let input = parse_macro_input!(input as FlatSerialize);
+    let expanded = match input {
+        FlatSerialize::Struct(input) => flat_serialize_struct(input),
+        FlatSerialize::Enum(input) => flat_serialize_enum(input),
+    };
+    // only here for debugging
+    // println!("{}", expanded.to_string());
+    expanded.into()
+}
+
+fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
     let ident = input.ident.clone();
 
-    let mut size_fields = HashMap::new();
-    let mut use_trait = HashSet::new();
-
-    let field_paths: Vec<Option<ExternalLenFieldInfo>> = input.fields.iter()
-        .enumerate()
-        .map(|(i, f)| {
-            let crate_name = quote::format_ident!("flat_serialize");
-            let att_name = quote::format_ident!("flatten");
-            let path = syn::parse_quote!{ #crate_name :: #att_name };
-            let uses_trait = f.attrs.iter().any(|att| att.path == path);
-            if uses_trait {
-                use_trait.insert(i);
-                return None
-            }
-            if let syn::Type::Array(array) = &f.ty {
-                let mut has_self = FindSelf(false);
-                has_self.visit_expr(&array.len);
-                let FindSelf(has_self) = has_self;
-                // println!("{} | {}", quote!{ #f }, has_self);
-                if has_self {
-                    let mut len_field = GetLenField(None);
-                    len_field.visit_expr(&array.len);
-                    // let mut len = array.len.clone();
-                    // let mut remove_self = RemoveSelf(true, None);
-                    // remove_self.visit_expr_mut(&mut len);
-                    if let Some(name) = len_field.0.clone() {
-                        size_fields.entry(name)
-                            .or_insert(f.ident.clone().unwrap());
-                    }
-                    return Some(ExternalLenFieldInfo {
-                        ty: (*array.elem).clone(),
-                        len_expr: array.len.clone(),
-                    })
-                }
-            }
-            None
-        })
-        .collect();
+    let (size_fields, field_paths, use_trait) = input.metadata();
 
     let ref_def = {
         let try_ref = input.fn_try_ref(&size_fields, &field_paths, &use_trait);
@@ -136,10 +109,50 @@ pub fn flat_serialize(input: TokenStream) -> TokenStream {
         }
     };
 
-    // only here for debugging
-    // println!("{}", expanded.to_string());
+    expanded
+}
 
-    expanded.into()
+fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
+    let try_ref = input.fn_try_ref();
+    let fill_vec = input.fn_fill_vec();
+    let len = input.fn_len();
+    let body = input.variants();
+    let ident = &input.ident;
+    let tag_ty = &input.tag.ty;
+    quote! {
+        #[allow(non_snake_case)]
+        mod #ident {
+            use super::*;
+            #[derive(Copy, Clone)]
+            #body
+
+            impl<'a> Ref<'a> {
+                #try_ref
+
+                #fill_vec
+
+                #len
+            }
+
+            // TODO
+            // impl<'a> FlattenableRef<'a> for Ref<'a> {
+            //     unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), EnumWrapErr<&'a #tag_ty>>
+            //     where Self: Sized + 'a {
+            //         Ref::try_ref(bytes)
+            //     }
+            //     fn fill_vec(&self, vec: &mut Vec<u8>) {
+            //         Ref::fill_vec(self, vec)
+            //     }
+            //     fn len(&self) -> usize {
+            //         Ref::len(self)
+            //     }
+            // }
+
+            pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Ref<'_>, &[u8]), EnumWrapErr<&#tag_ty>> {
+                Ref::try_ref(__packet_macro_bytes)
+            }
+        }
+    }
 }
 
 struct FindSelf(bool);
@@ -200,20 +213,26 @@ impl VisitMut for RemoveSelf {
     }
 }
 
-// TODO
-#[allow(dead_code)]
 enum FlatSerialize {
     Struct(FlatSerializeStruct),
-    Enum,
+    Enum(FlatSerializeEnum),
+}
+
+struct FlatSerializeStruct {
+    ident: Ident,
+    fields: Punctuated<Field, Token![,]>,
+}
+
+struct FlatSerializeEnum {
+    ident: Ident,
+    tag: Field,
+    variants: Punctuated<FlatSerializeVariant, Token![,]>,
 }
 
 #[allow(dead_code)]
-struct FlatSerializeStruct {
-    struct_token: Token![struct],
-    ident: Ident,
-    brace_token: token::Brace,
-    fields: Punctuated<Field, Token![,]>,
-
+struct FlatSerializeVariant {
+    tag_val: Expr,
+    body: FlatSerializeStruct,
 }
 
 impl Parse for FlatSerialize {
@@ -223,8 +242,7 @@ impl Parse for FlatSerialize {
         if lookahead.peek(Token![struct]) {
             input.parse().map(FlatSerialize::Struct)
         } else if lookahead.peek(Token![enum]) {
-            todo!()
-            // input.parse().map(FlatSerialize::Enum)
+            input.parse().map(FlatSerialize::Enum)
         } else {
             Err(lookahead.error())
         }
@@ -235,15 +253,48 @@ impl Parse for FlatSerialize {
 impl Parse for FlatSerializeStruct {
     fn parse(input: ParseStream) -> Result<Self> {
         let content;
-        let struct_token = input.parse()?;
+        let _struct_token: Token![struct] = input.parse()?;
         let ident = input.parse()?;
-        let brace_token = braced!(content in input);
+        let _brace_token: token::Brace = braced!(content in input);
         let fields = content.parse_terminated(Field::parse_named)?;
         Ok(Self {
-            struct_token,
             ident,
-            brace_token,
             fields,
+        })
+    }
+}
+
+impl Parse for FlatSerializeEnum {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let content;
+        let _enum_token: Token![enum] = input.parse()?;
+        let ident = input.parse()?;
+        let _brace_token: token::Brace = braced!(content in input);
+        let tag = Field::parse_named(&content)?;
+        let _comma_token: Token![,] = content.parse()?;
+        let variants = content.parse_terminated(FlatSerializeVariant::parse)?;
+        Ok(Self {
+            ident,
+            tag,
+            variants,
+        })
+    }
+}
+
+impl Parse for FlatSerializeVariant {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let content;
+        let ident = input.parse()?;
+        let _colon_token: Token![:] = input.parse()?;
+        let tag_val = input.parse()?;
+        let _brace_token: token::Brace = braced!(content in input);
+        let fields = content.parse_terminated(Field::parse_named)?;
+        Ok(Self {
+            tag_val,
+            body: FlatSerializeStruct {
+                ident,
+                fields,
+            }
         })
     }
 }
@@ -303,6 +354,148 @@ struct TryRefBody {
     body: TokenStream2,
     set_fields: TokenStream2,
     err_size: TokenStream2,
+}
+
+type Metadata = (HashMap<Ident, Ident>, Vec<Option<ExternalLenFieldInfo>>, HashSet<usize>);
+
+impl FlatSerializeEnum {
+    fn variants(&self) -> TokenStream2 {
+        let variants = self.variants.iter().map(|variant| {
+            let fields = variant.body.fields.iter().enumerate().flat_map(|(i, f)| {
+                let (size_fields, field_paths, use_trait) = variant.body.metadata();
+                let name = f.ident.as_ref().unwrap();
+                if size_fields.contains_key(name) {
+                    return None
+                }
+                let name = f.ident.as_ref().unwrap();
+                if use_trait.contains(&i) {
+                    let ty = &f.ty;
+                    Some(quote! { #name: #ty, })
+                } else {
+                    let ty = exposed_ty(&field_paths[i], &f.ty);
+                    Some(quote! { #name: &'a #ty, })
+                }
+            });
+            let ident = &variant.body.ident;
+            quote! {
+                #ident {
+                    #(#fields)*
+                },
+            }
+        });
+        quote! {
+            pub enum Ref<'a> {
+                #(#variants)*
+            }
+        }
+    }
+    fn fn_try_ref(&self) -> TokenStream2 {
+        let tag_ty = &self.tag.ty;
+        let tag_ident = self.tag.ident.as_ref().unwrap();
+        let break_label = syn::Lifetime::new("'tryref_tag", proc_macro2::Span::call_site());
+        let try_wrap_tag = try_wrap_field(tag_ident, tag_ty, &break_label, &None, false);
+
+        let bodies = self.variants.iter().enumerate().map(|(i, v)| {
+
+            let tag_val = &v.tag_val;
+
+            let variant = &v.body.ident;
+
+            let break_label = syn::Lifetime::new(&format!("'tryref_{}", i), proc_macro2::Span::call_site());
+            let (size_fields, field_paths, use_trait) = v.body.metadata();
+            let TryRefBody{vars, body, set_fields, err_size } =
+                v.body.fn_try_ref_body(&size_fields, &field_paths, &use_trait, &break_label);
+
+            quote!{
+                &#tag_val => {
+                    #vars
+                    #break_label: loop {
+                        #body
+                        let _ref = Ref::#variant { #set_fields };
+                        return Ok((_ref, __packet_macro_bytes))
+                    }
+                    return Err(EnumWrapErr::NotEnoughBytes(std::mem::size_of::<#tag_ty>() #err_size))
+                }
+            }
+        });
+
+        quote!{
+            #[allow(unused_assignments, unused_variables)]
+            #[inline(always)]
+            pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), EnumWrapErr<&'a #tag_ty>> {
+                let __packet_macro_read_len = 0usize;
+                let mut #tag_ident = None;
+                'tryref_tag: loop {
+                    #try_wrap_tag;
+                    match #tag_ident.unwrap() {
+                        #(#bodies),*
+                        tag => return Err(EnumWrapErr::InvalidTag(tag)),
+                    }
+                }
+                //TODO
+                Err(EnumWrapErr::NotEnoughBytes(::std::mem::size_of::<#tag_ty>()))
+            }
+        }
+    }
+
+    fn fn_fill_vec(&self) -> TokenStream2 {
+        let tag_ty = &self.tag.ty;
+        let tag_ident = self.tag.ident.as_ref().unwrap();
+        let fill_vec_tag = fill_vec_with_field(&self.tag, &None);
+        let bodies = self.variants.iter().map(|v| {
+            let tag_val = &v.tag_val;
+            let variant = &v.body.ident;
+            let (size_fields, field_paths, use_trait) = v.body.metadata();
+
+            let (fields, counters, fill_vec_with) = v.body.fill_vec_body(&size_fields, &field_paths, &use_trait);
+            quote!{
+                &Ref::#variant { #fields } => {
+                    let #tag_ident: &#tag_ty = &#tag_val;
+                    #counters
+                    #fill_vec_tag
+                    #fill_vec_with
+                }
+            }
+        });
+        quote!{
+            #[allow(unused_assignments, unused_variables)]
+            pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
+                __packet_macro_bytes.reserve_exact(self.len());
+                match self {
+                    #(#bodies),*
+                }
+            }
+        }
+    }
+
+    fn fn_len(&self) -> TokenStream2 {
+        let tag_ty = &self.tag.ty;
+        let tag_size = quote!{ ::std::mem::size_of::<#tag_ty>() };
+        let bodies = self.variants.iter().map(|v| {
+            let variant = &v.body.ident;
+            let (size_fields, field_paths, use_trait) = v.body.metadata();
+            let counters = size_fields.iter().map(|(s, i)| quote!( let #s = &#i.len(); ));
+            let size = v.body.fields.iter().enumerate().map(|(i, f)|
+                size_fn(&field_paths[i], use_trait.contains(&i), f));
+            let fields = v.body.fields.iter()
+                .map(|f| f.ident.as_ref().unwrap())
+                .filter(|f| !size_fields.contains_key(f));
+            quote!{
+                &Ref::#variant { #(#fields),* } => {
+                    #(#counters);*
+                    #tag_size #(+ #size)*
+                },
+            }
+        });
+        quote!{
+            #[allow(unused_assignments, unused_variables)]
+            pub fn len(&self) -> usize {
+                match self {
+                    #(#bodies)*
+                }
+            }
+        }
+    }
 }
 
 impl FlatSerializeStruct {
@@ -434,6 +627,48 @@ impl FlatSerializeStruct {
                 0usize #(+ #size)*
             }
         }
+    }
+
+    fn metadata(&self) -> Metadata {
+        let mut size_fields = HashMap::new();
+        let mut use_trait = HashSet::new();
+
+        let field_paths: Vec<Option<ExternalLenFieldInfo>> = self.fields.iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let crate_name = quote::format_ident!("flat_serialize");
+                let att_name = quote::format_ident!("flatten");
+                let path = syn::parse_quote!{ #crate_name :: #att_name };
+                let uses_trait = f.attrs.iter().any(|att| att.path == path);
+                if uses_trait {
+                    use_trait.insert(i);
+                    return None
+                }
+                if let syn::Type::Array(array) = &f.ty {
+                    let mut has_self = FindSelf(false);
+                    has_self.visit_expr(&array.len);
+                    let FindSelf(has_self) = has_self;
+                    // println!("{} | {}", quote!{ #f }, has_self);
+                    if has_self {
+                        let mut len_field = GetLenField(None);
+                        len_field.visit_expr(&array.len);
+                        // let mut len = array.len.clone();
+                        // let mut remove_self = RemoveSelf(true, None);
+                        // remove_self.visit_expr_mut(&mut len);
+                        if let Some(name) = len_field.0.clone() {
+                            size_fields.entry(name)
+                                .or_insert(f.ident.clone().unwrap());
+                        }
+                        return Some(ExternalLenFieldInfo {
+                            ty: (*array.elem).clone(),
+                            len_expr: array.len.clone(),
+                        })
+                    }
+                }
+                None
+            })
+            .collect();
+        (size_fields, field_paths, use_trait)
     }
 }
 
