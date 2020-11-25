@@ -118,7 +118,7 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let len = input.fn_len();
     let body = input.variants();
     let ident = &input.ident;
-    let tag_ty = &input.tag.ty;
+
     quote! {
         #[allow(non_snake_case)]
         mod #ident {
@@ -134,21 +134,20 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
                 #len
             }
 
-            // TODO
-            // impl<'a> FlattenableRef<'a> for Ref<'a> {
-            //     unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), EnumWrapErr<&'a #tag_ty>>
-            //     where Self: Sized + 'a {
-            //         Ref::try_ref(bytes)
-            //     }
-            //     fn fill_vec(&self, vec: &mut Vec<u8>) {
-            //         Ref::fill_vec(self, vec)
-            //     }
-            //     fn len(&self) -> usize {
-            //         Ref::len(self)
-            //     }
-            // }
+            impl<'a> FlattenableRef<'a> for Ref<'a> {
+                unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
+                where Self: Sized + 'a {
+                    Ref::try_ref(bytes)
+                }
+                fn fill_vec(&self, vec: &mut Vec<u8>) {
+                    Ref::fill_vec(self, vec)
+                }
+                fn len(&self) -> usize {
+                    Ref::len(self)
+                }
+            }
 
-            pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Ref<'_>, &[u8]), EnumWrapErr<&#tag_ty>> {
+            pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Ref<'_>, &[u8]), WrapErr> {
                 Ref::try_ref(__packet_macro_bytes)
             }
         }
@@ -407,14 +406,14 @@ impl FlatSerializeEnum {
                 v.body.fn_try_ref_body(&size_fields, &field_paths, &use_trait, &break_label);
 
             quote!{
-                &#tag_val => {
+                Some(&#tag_val) => {
                     #vars
                     #break_label: loop {
                         #body
                         let _ref = Ref::#variant { #set_fields };
                         return Ok((_ref, __packet_macro_bytes))
                     }
-                    return Err(EnumWrapErr::NotEnoughBytes(std::mem::size_of::<#tag_ty>() #err_size))
+                    return Err(WrapErr::NotEnoughBytes(std::mem::size_of::<#tag_ty>() #err_size))
                 }
             }
         });
@@ -422,18 +421,18 @@ impl FlatSerializeEnum {
         quote!{
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
-            pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), EnumWrapErr<&'a #tag_ty>> {
+            pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
                 let __packet_macro_read_len = 0usize;
                 let mut #tag_ident = None;
                 'tryref_tag: loop {
                     #try_wrap_tag;
-                    match #tag_ident.unwrap() {
+                    match #tag_ident {
                         #(#bodies),*
-                        tag => return Err(EnumWrapErr::InvalidTag(tag)),
+                        _ => return Err(WrapErr::InvalidTag(0)),
                     }
                 }
                 //TODO
-                Err(EnumWrapErr::NotEnoughBytes(::std::mem::size_of::<#tag_ty>()))
+                Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<#tag_ty>()))
             }
         }
     }
@@ -685,7 +684,10 @@ fn try_wrap_field(
                 let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
                 let (__packet_macro_field, __packet_macro_rem_bytes) = match <#ty as FlattenableRef>::try_ref(__packet_macro_bytes) {
                     Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) =>
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
                     Err(..) => break #break_label
+
                 };
                 let __packet_macro_size = __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
                 __packet_macro_bytes = __packet_macro_rem_bytes;

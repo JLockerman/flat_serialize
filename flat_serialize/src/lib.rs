@@ -2,21 +2,9 @@
 #[derive(Debug)]
 pub enum WrapErr {
     NotEnoughBytes(usize),
+    InvalidTag(usize),
 }
 
-#[derive(Debug)]
-pub enum EnumWrapErr<Tag> {
-    NotEnoughBytes(usize),
-    InvalidTag(Tag),
-}
-
-impl<Tag> From<WrapErr> for EnumWrapErr<Tag> {
-    fn from(err: WrapErr) -> Self {
-        match err {
-            WrapErr::NotEnoughBytes(size) => EnumWrapErr::NotEnoughBytes(size),
-        }
-    }
-}
 
 // TODO add a Metadata argument to try_ref and type to the trait for more
 //      advanced deserialization?
@@ -29,6 +17,7 @@ pub trait FlattenableRef<'a>: Sized + 'a {
             match Self::try_ref(&[]) {
                 Ok(..) => 0,
                 Err(WrapErr::NotEnoughBytes(b)) => b,
+                _ => unreachable!(),
             }
         }
     }
@@ -282,15 +271,17 @@ mod tests {
                 &[][..])
         );
 
-        // let (data, rem) = match unsafe { <BasicEnum::Ref as FlattenableRef>::try_ref(&bytes).unwrap() } {
-        //     (BasicEnum::Ref::First{ data }, rem) => (data, rem),
-        //     _ => unreachable!(),
-        // };
-        // assert_eq!(
-        //     (data, rem),
-        //     (&[1, 3, 5, 7, 9, 11][..],
-        //         &[][..])
-        // );
+        let (data, rem) = match unsafe {
+            <BasicEnum::Ref as FlattenableRef>::try_ref(&bytes).unwrap()
+        } {
+            (BasicEnum::Ref::First{ data }, rem) => (data, rem),
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            (data, rem),
+            (&[1, 3, 5, 7, 9, 11][..],
+                &[][..])
+        );
 
         let mut output = vec![];
         BasicEnum::Ref::First{ data }.fill_vec(&mut output);
@@ -318,11 +309,13 @@ mod tests {
         };
         assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
 
-        // let (data, rem) = match unsafe { <BasicEnum::Ref as FlattenableRef>::try_ref(&bytes).unwrap() } {
-        //     (BasicEnum::Ref::Fixed{ array }, rem) => (array, rem),
-        //     _ => unreachable!(),
-        // };
-        // assert_eq!((data, rem), (&[3, 6, 9][..], &[7][..])
+        let (array, rem) = match unsafe {
+            <BasicEnum::Ref as FlattenableRef>::try_ref(&bytes).unwrap()
+        } {
+            (BasicEnum::Ref::Fixed{ array }, rem) => (array, rem),
+            _ => unreachable!(),
+        };
+        assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
 
         let mut output = vec![];
         BasicEnum::Ref::Fixed{ array }.fill_vec(&mut output);
