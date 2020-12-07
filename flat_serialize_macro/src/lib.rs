@@ -51,11 +51,11 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
         }).collect();
         quote! {
             #[derive(Copy, Clone)]
-            pub struct Ref<'a> {
+            pub struct #ident<'a> {
                 #(#fields)*
             }
 
-            impl<'a> Ref<'a> {
+            impl<'a> #ident<'a> {
                 #try_ref
 
                 #fill_vec
@@ -63,16 +63,16 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                 #len
             }
 
-            impl<'a> FlattenableRef<'a> for Ref<'a> {
+            impl<'a> FlattenableRef<'a> for #ident<'a> {
                 unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
                 where Self: Sized + 'a {
-                    Ref::try_ref(bytes)
+                    #ident::try_ref(bytes)
                 }
                 fn fill_vec(&self, vec: &mut Vec<u8>) {
-                    Ref::fill_vec(self, vec)
+                    #ident::fill_vec(self, vec)
                 }
                 fn len(&self) -> usize {
-                    Ref::len(self)
+                    #ident::len(self)
                 }
             }
         }
@@ -95,18 +95,8 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 
 
     let expanded = quote! {
-        #[allow(non_snake_case)]
-        mod #ident {
-            use super::*;
-
-            #ref_def
-
-            // #mut_def
-
-            pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Ref<'_>, &[u8]), WrapErr> {
-                Ref::try_ref(__packet_macro_bytes)
-            }
-        }
+        #ref_def
+        // #mut_def
     };
 
     expanded
@@ -120,35 +110,27 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let ident = &input.ident;
 
     quote! {
-        #[allow(non_snake_case)]
-        mod #ident {
-            use super::*;
-            #[derive(Copy, Clone)]
-            #body
+        #[derive(Copy, Clone)]
+        #body
 
-            impl<'a> Ref<'a> {
-                #try_ref
+        impl<'a> #ident<'a> {
+            #try_ref
 
-                #fill_vec
+            #fill_vec
 
-                #len
+            #len
+        }
+
+        impl<'a> FlattenableRef<'a> for #ident<'a> {
+            unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
+            where Self: Sized + 'a {
+                #ident::try_ref(bytes)
             }
-
-            impl<'a> FlattenableRef<'a> for Ref<'a> {
-                unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
-                where Self: Sized + 'a {
-                    Ref::try_ref(bytes)
-                }
-                fn fill_vec(&self, vec: &mut Vec<u8>) {
-                    Ref::fill_vec(self, vec)
-                }
-                fn len(&self) -> usize {
-                    Ref::len(self)
-                }
+            fn fill_vec(&self, vec: &mut Vec<u8>) {
+                #ident::fill_vec(self, vec)
             }
-
-            pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Ref<'_>, &[u8]), WrapErr> {
-                Ref::try_ref(__packet_macro_bytes)
+            fn len(&self) -> usize {
+                #ident::len(self)
             }
         }
     }
@@ -359,6 +341,7 @@ type Metadata = (HashMap<Ident, Ident>, Vec<Option<ExternalLenFieldInfo>>, HashS
 
 impl FlatSerializeEnum {
     fn variants(&self) -> TokenStream2 {
+        let id = &self.ident;
         let variants = self.variants.iter().map(|variant| {
             let fields = variant.body.fields.iter().enumerate().flat_map(|(i, f)| {
                 let (size_fields, field_paths, use_trait) = variant.body.metadata();
@@ -383,7 +366,7 @@ impl FlatSerializeEnum {
             }
         });
         quote! {
-            pub enum Ref<'a> {
+            pub enum #id<'a> {
                 #(#variants)*
             }
         }
@@ -393,6 +376,7 @@ impl FlatSerializeEnum {
         let tag_ident = self.tag.ident.as_ref().unwrap();
         let break_label = syn::Lifetime::new("'tryref_tag", proc_macro2::Span::call_site());
         let try_wrap_tag = try_wrap_field(tag_ident, tag_ty, &break_label, &None, false);
+        let id = &self.ident;
 
         let bodies = self.variants.iter().enumerate().map(|(i, v)| {
 
@@ -410,7 +394,7 @@ impl FlatSerializeEnum {
                     #vars
                     #break_label: loop {
                         #body
-                        let _ref = Ref::#variant { #set_fields };
+                        let _ref = #id::#variant { #set_fields };
                         return Ok((_ref, __packet_macro_bytes))
                     }
                     return Err(WrapErr::NotEnoughBytes(std::mem::size_of::<#tag_ty>() #err_size))
@@ -441,6 +425,7 @@ impl FlatSerializeEnum {
         let tag_ty = &self.tag.ty;
         let tag_ident = self.tag.ident.as_ref().unwrap();
         let fill_vec_tag = fill_vec_with_field(&self.tag, &None);
+        let id = &self.ident;
         let bodies = self.variants.iter().map(|v| {
             let tag_val = &v.tag_val;
             let variant = &v.body.ident;
@@ -448,7 +433,7 @@ impl FlatSerializeEnum {
 
             let (fields, counters, fill_vec_with) = v.body.fill_vec_body(&size_fields, &field_paths, &use_trait);
             quote!{
-                &Ref::#variant { #fields } => {
+                &#id::#variant { #fields } => {
                     let #tag_ident: &#tag_ty = &#tag_val;
                     #counters
                     #fill_vec_tag
@@ -470,6 +455,7 @@ impl FlatSerializeEnum {
     fn fn_len(&self) -> TokenStream2 {
         let tag_ty = &self.tag.ty;
         let tag_size = quote!{ ::std::mem::size_of::<#tag_ty>() };
+        let id = &self.ident;
         let bodies = self.variants.iter().map(|v| {
             let variant = &v.body.ident;
             let (size_fields, field_paths, use_trait) = v.body.metadata();
@@ -480,7 +466,7 @@ impl FlatSerializeEnum {
                 .map(|f| f.ident.as_ref().unwrap())
                 .filter(|f| !size_fields.contains_key(f));
             quote!{
-                &Ref::#variant { #(#fields),* } => {
+                &#id::#variant { #(#fields),* } => {
                     #(#counters);*
                     #tag_size #(+ #size)*
                 },
@@ -505,6 +491,7 @@ impl FlatSerializeStruct {
         use_trait: &HashSet<usize>,
     ) -> TokenStream2 {
         let break_label = syn::Lifetime::new("'tryref", proc_macro2::Span::call_site());
+        let id = &self.ident;
         let TryRefBody{vars, body, set_fields, err_size } =
             self.fn_try_ref_body(size_fields, field_paths, &use_trait, &break_label);
         quote!{
@@ -515,7 +502,7 @@ impl FlatSerializeStruct {
                 #vars
                 #break_label: loop {
                     #body
-                    let _ref = Ref { #set_fields };
+                    let _ref = #id { #set_fields };
                     return Ok((_ref, __packet_macro_bytes))
                 }
                 Err(WrapErr::NotEnoughBytes(0 #err_size))
@@ -565,12 +552,13 @@ impl FlatSerializeStruct {
         field_paths: &[Option<ExternalLenFieldInfo>],
         use_trait: &HashSet<usize>,
     ) -> TokenStream2 {
+        let id = &self.ident;
         let (fields, counters, fill_vec_with) = self.fill_vec_body(size_fields, field_paths, use_trait);
         quote!{
             #[allow(unused_assignments, unused_variables)]
             pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
                 __packet_macro_bytes.reserve_exact(self.len());
-                let &Ref { #fields } = self;
+                let &#id { #fields } = self;
                 #counters
                 #fill_vec_with
             }
@@ -617,11 +605,12 @@ impl FlatSerializeStruct {
         let field = self.fields.iter()
             .map(|f| f.ident.as_ref().unwrap())
             .filter(|f| !size_fields.contains_key(f));
+        let id = &self.ident;
 
         quote!{
             #[allow(unused_assignments, unused_variables)]
             pub fn len(&self) -> usize {
-                let &Ref { #(#field),* } = self;
+                let &#id { #(#field),* } = self;
                 #(#counters);*
                 0usize #(+ #size)*
             }
