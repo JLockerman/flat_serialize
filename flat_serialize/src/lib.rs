@@ -164,7 +164,7 @@ mod tests {
     }
 
     flat_serialize!{
-        struct nested {
+        struct Nested {
             prefix: u64,
             #[flat_serialize::flatten]
             basic: Basic<'a>,
@@ -182,8 +182,8 @@ mod tests {
         bytes.extend_from_slice(&202u16.to_ne_bytes());
         bytes.extend_from_slice(&404u16.to_ne_bytes());
         bytes.extend_from_slice(&555u16.to_ne_bytes());
-        let (nested{ prefix, basic: Basic{ header, data, data2, array }}, rem) = unsafe {
-            nested::try_ref(&bytes).unwrap()
+        let (Nested{ prefix, basic: Basic{ header, data, data2, array }}, rem) = unsafe {
+            Nested::try_ref(&bytes).unwrap()
         };
         assert_eq!(
             (prefix, header, data, data2, array, rem),
@@ -195,8 +195,8 @@ mod tests {
                 &[][..])
         );
 
-        let (nested{ prefix, basic: Basic{ header, data, data2, array }}, rem) = unsafe {
-            <nested as FlattenableRef>::try_ref(&bytes).unwrap()
+        let (Nested{ prefix, basic: Basic{ header, data, data2, array }}, rem) = unsafe {
+            <Nested as FlattenableRef>::try_ref(&bytes).unwrap()
         };
         assert_eq!(
             (prefix, header, data, data2, array, rem),
@@ -209,7 +209,7 @@ mod tests {
         );
 
         let mut output = vec![];
-        nested{ prefix, basic: Basic{ header, data, data2, array }}.fill_vec(&mut output);
+        Nested{ prefix, basic: Basic{ header, data, data2, array }}.fill_vec(&mut output);
         assert_eq!(output, bytes);
     }
 
