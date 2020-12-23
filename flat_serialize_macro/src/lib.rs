@@ -7,7 +7,7 @@ use proc_macro2::TokenStream as TokenStream2;
 
 use quote::{quote, quote_spanned};
 
-use syn::{braced, parse_macro_input, token, Expr, Field, Ident, Result, Token, Type};
+use syn::{Attribute, Expr, Field, Ident, Result, Token, Type, braced, parse_macro_input, token};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::visit::Visit;
@@ -50,8 +50,11 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                 Some(quote! { pub #name: &'a #ty, })
             }
         }).collect();
+        let attrs = &*input.attrs;
+
         quote! {
             #[derive(Copy, Clone)]
+            #(#attrs)*
             pub struct #ident<'a> {
                 #(#fields)*
             }
@@ -109,9 +112,11 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let len = input.fn_len();
     let body = input.variants();
     let ident = &input.ident;
+    let attrs = &*input.attrs;
 
     quote! {
         #[derive(Copy, Clone)]
+        #(#attrs)*
         #body
 
         impl<'a> #ident<'a> {
@@ -201,11 +206,13 @@ enum FlatSerialize {
 }
 
 struct FlatSerializeStruct {
+    attrs: Vec<Attribute>,
     ident: Ident,
     fields: Punctuated<Field, Token![,]>,
 }
 
 struct FlatSerializeEnum {
+    attrs: Vec<Attribute>,
     ident: Ident,
     tag: Field,
     variants: Punctuated<FlatSerializeVariant, Token![,]>,
@@ -219,12 +226,19 @@ struct FlatSerializeVariant {
 
 impl Parse for FlatSerialize {
     fn parse(input: ParseStream) -> Result<Self> {
+        let attrs = input.call(Attribute::parse_outer)?;
         let lookahead = input.lookahead1();
         //TODO Visibility
         if lookahead.peek(Token![struct]) {
-            input.parse().map(FlatSerialize::Struct)
+            input.parse().map(|mut s: FlatSerializeStruct| {
+                s.attrs = attrs;
+                FlatSerialize::Struct(s)
+            })
         } else if lookahead.peek(Token![enum]) {
-            input.parse().map(FlatSerialize::Enum)
+            input.parse().map(|mut e: FlatSerializeEnum| {
+                e.attrs = attrs;
+                FlatSerialize::Enum(e)
+            })
         } else {
             Err(lookahead.error())
         }
@@ -240,6 +254,7 @@ impl Parse for FlatSerializeStruct {
         let _brace_token: token::Brace = braced!(content in input);
         let fields = content.parse_terminated(Field::parse_named)?;
         Ok(Self {
+            attrs: vec![],
             ident,
             fields,
         })
@@ -256,6 +271,7 @@ impl Parse for FlatSerializeEnum {
         let _comma_token: Token![,] = content.parse()?;
         let variants = content.parse_terminated(FlatSerializeVariant::parse)?;
         Ok(Self {
+            attrs: vec![],
             ident,
             tag,
             variants,
@@ -274,6 +290,7 @@ impl Parse for FlatSerializeVariant {
         Ok(Self {
             tag_val,
             body: FlatSerializeStruct {
+                attrs: vec![],
                 ident,
                 fields,
             }

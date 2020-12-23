@@ -115,6 +115,7 @@ mod tests {
     use flat_serialize_macro::flat_serialize;
 
     flat_serialize!{
+        #[derive(Debug)]
         struct Basic {
             header: u32,
             data_len: usize,
@@ -161,6 +162,9 @@ mod tests {
         let mut output = vec![];
         Basic{ header, data, data2, array }.fill_vec(&mut output);
         assert_eq!(output, bytes);
+
+        let debug = format!("{:?}", Basic{ header, data, data2, array });
+        assert_eq!(debug, "Basic { header: 33, data: [1, 3, 5, 7, 9, 11], data2: [4, 4, 4], array: [202, 404, 555] }");
     }
 
     flat_serialize!{
