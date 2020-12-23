@@ -1,10 +1,8 @@
-
 #[derive(Debug)]
 pub enum WrapErr {
     NotEnoughBytes(usize),
     InvalidTag(usize),
 }
-
 
 // TODO add a Metadata argument to try_ref and type to the trait for more
 //      advanced deserialization?
@@ -24,28 +22,26 @@ pub trait FlattenableRef<'a>: Sized + 'a {
 }
 
 pub unsafe trait FlatSerializable: Sized {
-    unsafe fn try_ref<'a>(bytes: &'a [u8])
-    -> Result<(&'a Self, &'a [u8]), WrapErr> {
+    unsafe fn try_ref<'a>(bytes: &'a [u8]) -> Result<(&'a Self, &'a [u8]), WrapErr> {
         let size = ::std::mem::size_of::<Self>();
         if bytes.len() < size {
-            return Err(WrapErr::NotEnoughBytes(size))
+            return Err(WrapErr::NotEnoughBytes(size));
         }
-        let (field, rem_bytes) =
-            bytes.split_at(size);
-        let field: &Self =
-            ::std::mem::transmute(field.as_ptr());
+        let (field, rem_bytes) = bytes.split_at(size);
+        let field: &Self = ::std::mem::transmute(field.as_ptr());
         Ok((field, rem_bytes))
     }
-    unsafe fn try_slice<'a>(bytes: &'a [u8], count: usize)
-    -> Result<(&'a [Self], &'a [u8]), WrapErr> {
+    unsafe fn try_slice<'a>(
+        bytes: &'a [u8],
+        count: usize,
+    ) -> Result<(&'a [Self], &'a [u8]), WrapErr> {
         let size = ::std::mem::size_of::<Self>() * count;
         if bytes.len() < size {
-            return Err(WrapErr::NotEnoughBytes(size))
+            return Err(WrapErr::NotEnoughBytes(size));
         }
         let (field_bytes, rem_bytes) = bytes.split_at(size);
         let field_ptr = field_bytes.as_ptr();
-        let field = ::std::slice::from_raw_parts(
-            field_ptr as *const Self, count);
+        let field = ::std::slice::from_raw_parts(field_ptr as *const Self, count);
         debug_assert_eq!(
             field_ptr.offset(size as isize) as usize,
             field.as_ptr().offset(count as isize) as usize
@@ -56,8 +52,7 @@ pub unsafe trait FlatSerializable: Sized {
         unsafe {
             let size = ::std::mem::size_of::<Self>();
             let bytes = self as *const Self as *const u8;
-            let slice =
-                ::std::slice::from_raw_parts(bytes, size);
+            let slice = ::std::slice::from_raw_parts(bytes, size);
             vec.extend_from_slice(slice)
         }
     }
@@ -114,7 +109,7 @@ mod tests {
 
     use flat_serialize_macro::flat_serialize;
 
-    flat_serialize!{
+    flat_serialize! {
         #[derive(Debug)]
         struct Basic {
             header: u32,
@@ -135,37 +130,71 @@ mod tests {
         bytes.extend_from_slice(&202u16.to_ne_bytes());
         bytes.extend_from_slice(&404u16.to_ne_bytes());
         bytes.extend_from_slice(&555u16.to_ne_bytes());
-        let (Basic{ header, data_len, data, data2, array }, rem) = unsafe {
-            Basic::try_ref(&bytes).unwrap()
-        };
+        let (
+            Basic {
+                header,
+                data_len,
+                data,
+                data2,
+                array,
+            },
+            rem,
+        ) = unsafe { Basic::try_ref(&bytes).unwrap() };
         assert_eq!(
             (header, data_len, data, data2, array, rem),
-            (&33,
+            (
+                &33,
                 &6,
                 &[1, 3, 5, 7, 9, 11][..],
                 &[4, 4, 4][..],
                 &[202, 404, 555],
-                &[][..])
+                &[][..]
+            )
         );
 
-        let (Basic{ header, data_len, data, data2, array }, rem) = unsafe {
-            <Basic as FlattenableRef>::try_ref(&bytes).unwrap()
-        };
+        let (
+            Basic {
+                header,
+                data_len,
+                data,
+                data2,
+                array,
+            },
+            rem,
+        ) = unsafe { <Basic as FlattenableRef>::try_ref(&bytes).unwrap() };
         assert_eq!(
             (header, data_len, data, data2, array, rem),
-            (&33,
+            (
+                &33,
                 &6,
                 &[1, 3, 5, 7, 9, 11][..],
                 &[4, 4, 4][..],
                 &[202, 404, 555],
-                &[][..])
+                &[][..]
+            )
         );
 
         let mut output = vec![];
-        Basic{ header, data_len, data, data2, array }.fill_vec(&mut output);
+        Basic {
+            header,
+            data_len,
+            data,
+            data2,
+            array,
+        }
+        .fill_vec(&mut output);
         assert_eq!(output, bytes);
 
-        let debug = format!("{:?}", Basic{ header, data_len, data, data2, array });
+        let debug = format!(
+            "{:?}",
+            Basic {
+                header,
+                data_len,
+                data,
+                data2,
+                array
+            }
+        );
         assert_eq!(debug, "Basic { header: 33, data_len: 6, data: [1, 3, 5, 7, 9, 11], data2: [4, 4, 4], array: [202, 404, 555] }");
     }
 
@@ -173,30 +202,31 @@ mod tests {
     #[should_panic(expected = "range end index 5 out of range for slice of length 1")]
     fn bad_len1() {
         let mut output = vec![];
-        Basic{
+        Basic {
             header: &1,
             data_len: &5,
             data: &[1],
             data2: &[2],
-            array: &[0;3]
-        }.fill_vec(&mut output);
+            array: &[0; 3],
+        }
+        .fill_vec(&mut output);
     }
 
     #[test]
     #[should_panic(expected = "range end index 2 out of range for slice of length 0")]
     fn bad_len2() {
         let mut output = vec![];
-        Basic{
+        Basic {
             header: &1,
             data_len: &5,
             data: &[1, 2, 3, 4, 5],
             data2: &[],
-            array: &[0;3]
-        }.fill_vec(&mut output);
+            array: &[0; 3],
+        }
+        .fill_vec(&mut output);
     }
 
-
-    flat_serialize!{
+    flat_serialize! {
         struct Nested {
             prefix: u64,
             #[flat_serialize::flatten]
@@ -215,40 +245,76 @@ mod tests {
         bytes.extend_from_slice(&202u16.to_ne_bytes());
         bytes.extend_from_slice(&404u16.to_ne_bytes());
         bytes.extend_from_slice(&555u16.to_ne_bytes());
-        let (Nested{ prefix, basic: Basic{ header, data_len, data, data2, array }}, rem) = unsafe {
-            Nested::try_ref(&bytes).unwrap()
-        };
+        let (
+            Nested {
+                prefix,
+                basic:
+                    Basic {
+                        header,
+                        data_len,
+                        data,
+                        data2,
+                        array,
+                    },
+            },
+            rem,
+        ) = unsafe { Nested::try_ref(&bytes).unwrap() };
         assert_eq!(
             (prefix, header, data_len, data, data2, array, rem),
-            (&101010101,
+            (
+                &101010101,
                 &33,
                 &6,
                 &[1, 3, 5, 7, 9, 11][..],
                 &[4, 4, 4][..],
                 &[202, 404, 555],
-                &[][..])
+                &[][..]
+            )
         );
 
-        let (Nested{ prefix, basic: Basic{ header, data_len, data, data2, array }}, rem) = unsafe {
-            <Nested as FlattenableRef>::try_ref(&bytes).unwrap()
-        };
+        let (
+            Nested {
+                prefix,
+                basic:
+                    Basic {
+                        header,
+                        data_len,
+                        data,
+                        data2,
+                        array,
+                    },
+            },
+            rem,
+        ) = unsafe { <Nested as FlattenableRef>::try_ref(&bytes).unwrap() };
         assert_eq!(
             (prefix, header, data_len, data, data2, array, rem),
-            (&101010101,
+            (
+                &101010101,
                 &33,
                 &6,
                 &[1, 3, 5, 7, 9, 11][..],
                 &[4, 4, 4][..],
                 &[202, 404, 555],
-                &[][..])
+                &[][..]
+            )
         );
 
         let mut output = vec![];
-        Nested{ prefix, basic: Basic{ header, data_len, data, data2, array }}.fill_vec(&mut output);
+        Nested {
+            prefix,
+            basic: Basic {
+                header,
+                data_len,
+                data,
+                data2,
+                array,
+            },
+        }
+        .fill_vec(&mut output);
         assert_eq!(output, bytes);
     }
 
-    flat_serialize!{
+    flat_serialize! {
         enum BasicEnum {
             k: u8,
             First: 2 {
@@ -268,34 +334,28 @@ mod tests {
         bytes.extend_from_slice(&6usize.to_ne_bytes());
         bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
         let (data_len, data, rem) = match unsafe { BasicEnum::try_ref(&bytes).unwrap() } {
-            (BasicEnum::First{ data_len, data }, rem) => (data_len, data, rem),
+            (BasicEnum::First { data_len, data }, rem) => (data_len, data, rem),
             _ => unreachable!(),
         };
         assert_eq!(
             (data_len, data, rem),
-            (&6,
-                &[1, 3, 5, 7, 9, 11][..],
-                &[][..])
+            (&6, &[1, 3, 5, 7, 9, 11][..], &[][..])
         );
 
-        let (data_len, data, rem) = match unsafe {
-            <BasicEnum as FlattenableRef>::try_ref(&bytes).unwrap()
-        } {
-            (BasicEnum::First{ data_len, data }, rem) => (data_len, data, rem),
-            _ => unreachable!(),
-        };
+        let (data_len, data, rem) =
+            match unsafe { <BasicEnum as FlattenableRef>::try_ref(&bytes).unwrap() } {
+                (BasicEnum::First { data_len, data }, rem) => (data_len, data, rem),
+                _ => unreachable!(),
+            };
         assert_eq!(
             (data_len, data, rem),
-            (&6,
-                &[1, 3, 5, 7, 9, 11][..],
-                &[][..])
+            (&6, &[1, 3, 5, 7, 9, 11][..], &[][..])
         );
 
         let mut output = vec![];
-        BasicEnum::First{ data_len, data }.fill_vec(&mut output);
+        BasicEnum::First { data_len, data }.fill_vec(&mut output);
         assert_eq!(output, bytes);
     }
-
 
     #[test]
     fn basic_enum2() {
@@ -306,27 +366,26 @@ mod tests {
         bytes.extend_from_slice(&9u16.to_ne_bytes());
         bytes.extend_from_slice(&[7]);
         let (array, rem) = match unsafe { BasicEnum::try_ref(&bytes).unwrap() } {
-            (BasicEnum::Fixed{ array }, rem) => (array, rem),
+            (BasicEnum::Fixed { array }, rem) => (array, rem),
             _ => unreachable!(),
         };
         assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
 
         let (array, rem) = match unsafe { BasicEnum::try_ref(&bytes).unwrap() } {
-            (BasicEnum::Fixed{ array }, rem) => (array, rem),
+            (BasicEnum::Fixed { array }, rem) => (array, rem),
             _ => unreachable!(),
         };
         assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
 
-        let (array, rem) = match unsafe {
-            <BasicEnum as FlattenableRef>::try_ref(&bytes).unwrap()
-        } {
-            (BasicEnum::Fixed{ array }, rem) => (array, rem),
+        let (array, rem) = match unsafe { <BasicEnum as FlattenableRef>::try_ref(&bytes).unwrap() }
+        {
+            (BasicEnum::Fixed { array }, rem) => (array, rem),
             _ => unreachable!(),
         };
         assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
 
         let mut output = vec![];
-        BasicEnum::Fixed{ array }.fill_vec(&mut output);
-        assert_eq!(output, &bytes[..bytes.len()-1]);
+        BasicEnum::Fixed { array }.fill_vec(&mut output);
+        assert_eq!(output, &bytes[..bytes.len() - 1]);
     }
 }
