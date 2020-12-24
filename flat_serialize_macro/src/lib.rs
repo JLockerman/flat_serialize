@@ -4,7 +4,7 @@ use proc_macro::TokenStream;
 
 use proc_macro2::TokenStream as TokenStream2;
 
-use quote::quote;
+use quote::{quote, quote_spanned};
 
 use syn::{
     braced,
@@ -37,6 +37,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
     let (field_paths, use_trait) = input.metadata();
 
     let ref_def = {
+        let alignment_check = input.alignment_check(quote!(0), &field_paths, &use_trait);
         let try_ref = input.fn_try_ref(&field_paths, &use_trait);
         let fill_vec = input.fn_fill_vec(&field_paths, &use_trait);
         let len = input.fn_len(&field_paths, &use_trait);
@@ -63,6 +64,8 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
             pub struct #ident<'a> {
                 #(#fields)*
             }
+
+            #alignment_check
 
             impl<'a> #ident<'a> {
                 #try_ref
@@ -509,6 +512,54 @@ impl FlatSerializeEnum {
 }
 
 impl FlatSerializeStruct {
+    fn alignment_check(
+        &self,
+        start: TokenStream2,
+        field_paths: &[Option<ExternalLenFieldInfo>],
+        use_trait: &HashSet<usize>,
+    ) -> TokenStream2 {
+        if !use_trait.is_empty() {
+            //TODO
+            return quote! {};
+        }
+
+        let checks = self.fields.iter().enumerate().map(|(i, f)| {
+            use syn::spanned::Spanned;
+            match &field_paths[i] {
+                None => {
+                    let ty = &f.ty;
+                    quote_spanned! {f.ty.span()=>
+                        let _alignment_check = [()][_size % align_of::<#ty>()];
+                        let _alignment_check2 = [()][(align_of::<#ty>() > _min_alignment) as u8 as usize];
+                        let _padding_check = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
+                        _size = _size + size_of::<#ty>();
+                    }
+                }
+                Some(info) => {
+                    let ty = &info.ty;
+                    quote_spanned! {f.ty.span()=>
+                        let _alignment_check = [()][_size % align_of::<#ty>()];
+                        let _alignment_check2 = [()][(align_of::<#ty>() > _min_alignment) as u8 as usize];
+                        let _padding_check = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
+                        if align_of::<#ty>() < _min_alignment {
+                            _min_alignment = align_of::<#ty>()
+                        }
+                    }
+                }
+            }
+        });
+
+        quote! {
+            // alignment assertions
+            const _: () = {
+                use std::mem::{align_of, size_of};
+                let mut _size = #start;
+                let mut _min_alignment = 8;
+                #(#checks)*
+            };
+        }
+    }
+
     fn fn_try_ref(
         &self,
         field_paths: &[Option<ExternalLenFieldInfo>],
@@ -537,6 +588,7 @@ impl FlatSerializeStruct {
             }
         }
     }
+
     fn fn_try_ref_body(
         &self,
         field_paths: &[Option<ExternalLenFieldInfo>],

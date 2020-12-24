@@ -112,24 +112,24 @@ mod tests {
     flat_serialize! {
         #[derive(Debug)]
         struct Basic {
-            header: u32,
-            data_len: usize,
+            header: u64,
+            data_len: u32,
+            array: [u16; 3],
             data: [u8; self.data_len],
             data2: [u8; self.data_len / 2],
-            array: [u16; 3],
         }
     }
 
     #[test]
     fn basic() {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&33u32.to_ne_bytes());
-        bytes.extend_from_slice(&6usize.to_ne_bytes());
-        bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
-        bytes.extend_from_slice(&[4, 4, 4]);
+        bytes.extend_from_slice(&33u64.to_ne_bytes());
+        bytes.extend_from_slice(&6u32.to_ne_bytes());
         bytes.extend_from_slice(&202u16.to_ne_bytes());
         bytes.extend_from_slice(&404u16.to_ne_bytes());
         bytes.extend_from_slice(&555u16.to_ne_bytes());
+        bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
+        bytes.extend_from_slice(&[4, 4, 4]);
         let (
             Basic {
                 header,
@@ -195,7 +195,7 @@ mod tests {
                 array
             }
         );
-        assert_eq!(debug, "Basic { header: 33, data_len: 6, data: [1, 3, 5, 7, 9, 11], data2: [4, 4, 4], array: [202, 404, 555] }");
+        assert_eq!(debug, "Basic { header: 33, data_len: 6, array: [202, 404, 555], data: [1, 3, 5, 7, 9, 11], data2: [4, 4, 4] }");
     }
 
     #[test]
@@ -238,13 +238,13 @@ mod tests {
     fn nested() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&101010101u64.to_ne_bytes());
-        bytes.extend_from_slice(&33u32.to_ne_bytes());
-        bytes.extend_from_slice(&6usize.to_ne_bytes());
-        bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
-        bytes.extend_from_slice(&[4, 4, 4]);
+        bytes.extend_from_slice(&33u64.to_ne_bytes());
+        bytes.extend_from_slice(&6u32.to_ne_bytes());
         bytes.extend_from_slice(&202u16.to_ne_bytes());
         bytes.extend_from_slice(&404u16.to_ne_bytes());
         bytes.extend_from_slice(&555u16.to_ne_bytes());
+        bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
+        bytes.extend_from_slice(&[4, 4, 4]);
         let (
             Nested {
                 prefix,
