@@ -388,4 +388,31 @@ mod tests {
         BasicEnum::Fixed { array }.fill_vec(&mut output);
         assert_eq!(output, &bytes[..bytes.len() - 1]);
     }
+
+    macro_rules! sub_macro {
+        (
+            $(#[$attrs: meta])?
+            struct $name: ident {
+                $($field:ident : $typ: tt),*
+                $(,)?
+            }
+        ) => {
+            flat_serialize_macro::flat_serialize! {
+                $(#[$attrs])?
+                struct $name {
+                    $($field: $typ),*
+                }
+            }
+        }
+    }
+
+    // test that sub_macros provide correct compilation
+    sub_macro! {
+        #[derive(Debug)]
+        struct InMacro {
+            a: u32,
+            padding: [u8; 4], // with this commented out, the error should be on b
+            b: f64,
+        }
+    }
 }

@@ -523,27 +523,43 @@ impl FlatSerializeStruct {
             return quote! {};
         }
 
+        // we create the size/align values as ever-increasing expressions
+        // instead of variables due to the way span info works: we want to use
+        // the span of the inputted type so that errors are reported only at the
+        // type that causes the misalignment, however, if the type is inputted
+        // via a macro, that span will be unable to reference local variables
+        // we create ourselves.
+        let mut size = quote! { #start };
+        let mut min_align = quote! { 8 };
+
         let checks = self.fields.iter().enumerate().map(|(i, f)| {
             use syn::spanned::Spanned;
+            use std::mem::replace;
             match &field_paths[i] {
                 None => {
                     let ty = &f.ty;
-                    quote_spanned! {f.ty.span()=>
-                        let _alignment_check = [()][_size % align_of::<#ty>()];
-                        let _alignment_check2 = [()][(align_of::<#ty>() > _min_alignment) as u8 as usize];
+                    let new_size = quote!{#size + size_of::<#ty>()};
+                    let size = replace(&mut size, new_size);
+                    quote_spanned!{f.ty.span()=>
+                        let _alignment_check= [()][(#size) % align_of::<#ty>()];
+                        let _alignment_check2 = [()][(align_of::<#ty>() > #min_align) as u8 as usize];
                         let _padding_check = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
-                        _size = _size + size_of::<#ty>();
                     }
                 }
                 Some(info) => {
                     let ty = &info.ty;
-                    quote_spanned! {f.ty.span()=>
-                        let _alignment_check = [()][_size % align_of::<#ty>()];
-                        let _alignment_check2 = [()][(align_of::<#ty>() > _min_alignment) as u8 as usize];
-                        let _padding_check = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
-                        if align_of::<#ty>() < _min_alignment {
-                            _min_alignment = align_of::<#ty>()
+                    let new_min_align = quote!{
+                        if align_of::<#ty>() < #min_align {
+                            align_of::<#ty>()
+                        } else {
+                            #min_align
                         }
+                    };
+                    let min_align = replace(&mut min_align, new_min_align);
+                    quote_spanned!{f.ty.span()=>
+                        let _alignment_check: () = [()][(#size) % align_of::<#ty>()];
+                        let _alignment_check2: () = [()][(align_of::<#ty>() > #min_align) as u8 as usize];
+                        let _padding_check: () = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
                     }
                 }
             }
@@ -553,8 +569,6 @@ impl FlatSerializeStruct {
             // alignment assertions
             const _: () = {
                 use std::mem::{align_of, size_of};
-                let mut _size = #start;
-                let mut _min_alignment = 8;
                 #(#checks)*
             };
         }
