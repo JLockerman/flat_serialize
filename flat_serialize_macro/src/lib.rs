@@ -47,12 +47,13 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
             .enumerate()
             .flat_map(|(i, f)| {
                 let name = f.ident.as_ref().unwrap();
+                let attrs = filtered_attrs(f.attrs.iter());
                 if use_trait.contains(&i) {
                     let ty = &f.ty;
-                    Some(quote! { pub #name: #ty, })
+                    Some(quote! { #(#attrs)* pub #name: #ty, })
                 } else {
                     let ty = exposed_ty(&field_paths[i], &f.ty);
-                    Some(quote! { pub #name: &'a #ty, })
+                    Some(quote! { #(#attrs)* pub #name: &'a #ty, })
                 }
             })
             .collect();
@@ -372,12 +373,13 @@ impl FlatSerializeEnum {
             let fields = variant.body.fields.iter().enumerate().flat_map(|(i, f)| {
                 let (field_paths, use_trait) = variant.body.metadata();
                 let name = f.ident.as_ref().unwrap();
+                let attrs = filtered_attrs(f.attrs.iter());
                 if use_trait.contains(&i) {
                     let ty = &f.ty;
-                    Some(quote! { #name: #ty, })
+                    Some(quote! { #(#attrs)* #name: #ty, })
                 } else {
                     let ty = exposed_ty(&field_paths[i], &f.ty);
-                    Some(quote! { #name: &'a #ty, })
+                    Some(quote! { #(#attrs)* #name: &'a #ty, })
                 }
             });
             let ident = &variant.body.ident;
@@ -919,4 +921,11 @@ fn size_fn(info: &Option<ExternalLenFieldInfo>, use_trait: bool, field: &Field) 
             quote!( ::std::mem::size_of::<#nominal_ty>() )
         }
     }
+}
+
+fn filtered_attrs<'a>(attrs: impl Iterator<Item=&'a Attribute>) -> impl Iterator<Item=&'a Attribute> {
+    let crate_name = quote::format_ident!("flat_serialize");
+    let att_name = quote::format_ident!("flatten");
+    let path = syn::parse_quote! { #crate_name :: #att_name };
+    attrs.filter(move |a| a.path != path)
 }
