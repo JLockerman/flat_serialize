@@ -53,7 +53,9 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                     Some(quote! { #(#attrs)* pub #name: #ty, })
                 } else {
                     let ty = exposed_ty(&field_paths[i], &f.ty);
-                    Some(quote! { #(#attrs)* pub #name: &'a #ty, })
+                    let per_field_attrs =
+                        per_field_attrs(&field_paths[i], input.per_field_attrs.iter());
+                    Some(quote! { #(#per_field_attrs)* #(#attrs)* pub #name: &'a #ty, })
                 }
             })
             .collect();
@@ -214,36 +216,55 @@ enum FlatSerialize {
 }
 
 struct FlatSerializeStruct {
+    per_field_attrs: Vec<PerFieldsAttr>,
     attrs: Vec<Attribute>,
     ident: Ident,
     fields: Punctuated<Field, Token![,]>,
 }
 
 struct FlatSerializeEnum {
+    per_field_attrs: Vec<PerFieldsAttr>,
     attrs: Vec<Attribute>,
     ident: Ident,
     tag: Field,
     variants: Punctuated<FlatSerializeVariant, Token![,]>,
 }
 
-#[allow(dead_code)]
 struct FlatSerializeVariant {
     tag_val: Expr,
     body: FlatSerializeStruct,
 }
 
+struct PerFieldsAttr {
+    fixed: Attribute,
+    variable: Option<Attribute>,
+}
+
+const LIBRARY_MARKER: &str = "flat_serialize";
+
 impl Parse for FlatSerialize {
     fn parse(input: ParseStream) -> Result<Self> {
         let attrs = input.call(Attribute::parse_outer)?;
+        let field_attr_path = flat_serialize_attr_path("field_attr");
+        let (per_field_attrs, attrs): (Vec<_>, _) = attrs
+            .into_iter()
+            .partition(|attr| attr.path == field_attr_path);
+        let per_field_attrs: Result<_> = per_field_attrs
+            .into_iter()
+            .map(|a| a.parse_args_with(PerFieldsAttr::parse))
+            .collect();
+        let per_field_attrs = per_field_attrs?;
         let lookahead = input.lookahead1();
         //TODO Visibility
         if lookahead.peek(Token![struct]) {
             input.parse().map(|mut s: FlatSerializeStruct| {
+                s.per_field_attrs = per_field_attrs;
                 s.attrs = attrs;
                 FlatSerialize::Struct(s)
             })
         } else if lookahead.peek(Token![enum]) {
             input.parse().map(|mut e: FlatSerializeEnum| {
+                e.per_field_attrs = per_field_attrs;
                 e.attrs = attrs;
                 FlatSerialize::Enum(e)
             })
@@ -261,6 +282,7 @@ impl Parse for FlatSerializeStruct {
         let _brace_token: token::Brace = braced!(content in input);
         let fields = content.parse_terminated(Field::parse_named)?;
         Ok(Self {
+            per_field_attrs: vec![],
             attrs: vec![],
             ident,
             fields,
@@ -278,6 +300,7 @@ impl Parse for FlatSerializeEnum {
         let _comma_token: Token![,] = content.parse()?;
         let variants = content.parse_terminated(FlatSerializeVariant::parse)?;
         Ok(Self {
+            per_field_attrs: vec![],
             attrs: vec![],
             ident,
             tag,
@@ -297,11 +320,88 @@ impl Parse for FlatSerializeVariant {
         Ok(Self {
             tag_val,
             body: FlatSerializeStruct {
+                per_field_attrs: vec![],
                 attrs: vec![],
                 ident,
                 fields,
             },
         })
+    }
+}
+
+impl Parse for PerFieldsAttr {
+    fn parse(input: ParseStream) -> Result<Self> {
+        use syn::spanned::Spanned;
+
+        let fixed: syn::MetaNameValue = input.parse()?;
+        let mut variable: Option<syn::MetaNameValue> = None;
+        if !input.is_empty() {
+            let _comma_token: Token![,] = input.parse()?;
+            if !input.is_empty() {
+                variable = Some(input.parse()?)
+            }
+            if !input.is_empty() {
+                let _comma_token: Token![,] = input.parse()?;
+            }
+        }
+
+        if !fixed.path.is_ident("fixed") {
+            return Err(syn::Error::new(fixed.path.span(), "expected `fixed`"));
+        }
+        if !variable
+            .as_ref()
+            .map(|v| v.path.is_ident("variable"))
+            .unwrap_or(true)
+        {
+            return Err(syn::Error::new(
+                variable.unwrap().path.span(),
+                "expected `variable`",
+            ));
+        }
+        let fixed = match &fixed.lit {
+            syn::Lit::Str(fixed) => {
+                let mut fixed_attrs = fixed.parse_with(Attribute::parse_outer)?;
+                if fixed_attrs.len() != 1 {
+                    return Err(syn::Error::new(
+                        fixed.span(),
+                        "must contain exactly one attribute",
+                    ));
+                }
+                fixed_attrs.pop().unwrap()
+            }
+
+            _ => {
+                return Err(syn::Error::new(
+                    fixed.lit.span(),
+                    "must contain exactly one attribute",
+                ))
+            }
+        };
+
+        let variable = match variable {
+            None => None,
+            Some(variable) => match &variable.lit {
+                syn::Lit::Str(variable) => {
+                    let mut variable_attrs = variable.parse_with(Attribute::parse_outer)?;
+                    if variable_attrs.len() != 1 {
+                        return Err(syn::Error::new(
+                            variable.span(),
+                            "must contain exactly one attribute",
+                        ));
+                    }
+                    Some(variable_attrs.pop().unwrap())
+                }
+
+                _ => {
+                    return Err(syn::Error::new(
+                        variable.lit.span(),
+                        "must contain exactly one attribute",
+                    ))
+                }
+            },
+        };
+
+        Ok(Self { fixed, variable })
     }
 }
 
@@ -379,7 +479,9 @@ impl FlatSerializeEnum {
                     Some(quote! { #(#attrs)* #name: #ty, })
                 } else {
                     let ty = exposed_ty(&field_paths[i], &f.ty);
-                    Some(quote! { #(#attrs)* #name: &'a #ty, })
+                    let per_field_attrs =
+                        per_field_attrs(&field_paths[i], self.per_field_attrs.iter());
+                    Some(quote! { #(#per_field_attrs)* #(#attrs)* #name: &'a #ty, })
                 }
             });
             let ident = &variant.body.ident;
@@ -724,9 +826,7 @@ impl FlatSerializeStruct {
             .iter()
             .enumerate()
             .map(|(i, f)| {
-                let crate_name = quote::format_ident!("flat_serialize");
-                let att_name = quote::format_ident!("flatten");
-                let path = syn::parse_quote! { #crate_name :: #att_name };
+                let path = flat_serialize_attr_path("flatten");
                 let uses_trait = f.attrs.iter().any(|att| att.path == path);
                 if uses_trait {
                     use_trait.insert(i);
@@ -923,9 +1023,31 @@ fn size_fn(info: &Option<ExternalLenFieldInfo>, use_trait: bool, field: &Field) 
     }
 }
 
-fn filtered_attrs<'a>(attrs: impl Iterator<Item=&'a Attribute>) -> impl Iterator<Item=&'a Attribute> {
-    let crate_name = quote::format_ident!("flat_serialize");
-    let att_name = quote::format_ident!("flatten");
-    let path = syn::parse_quote! { #crate_name :: #att_name };
+fn filtered_attrs<'a>(
+    attrs: impl Iterator<Item = &'a Attribute>,
+) -> impl Iterator<Item = &'a Attribute> {
+    let path = flat_serialize_attr_path("flatten");
     attrs.filter(move |a| a.path != path)
+}
+
+fn flat_serialize_attr_path(att_name: &str) -> syn::Path {
+    let crate_name = quote::format_ident!("{}", LIBRARY_MARKER);
+    let att_name = quote::format_ident!("{}", att_name);
+    syn::parse_quote! { #crate_name :: #att_name }
+}
+
+fn per_field_attrs<'a>(
+    field_info: &'a Option<ExternalLenFieldInfo>,
+    attrs: impl Iterator<Item = &'a PerFieldsAttr> + 'a,
+) -> impl Iterator<Item = TokenStream2> + 'a {
+    attrs.map(move |attr| match field_info {
+        None => {
+            let attr = &attr.fixed;
+            quote! { #attr }
+        }
+        Some(_) => match &attr.variable {
+            Some(attr) => quote! { #attr },
+            None => quote! {},
+        },
+    })
 }
