@@ -178,34 +178,30 @@ impl<'ast> Visit<'ast> for GetLenField {
     }
 }
 
-struct RemoveSelf(bool, Option<Ident>);
+struct ValidateLenFields<'a, 'b>(Option<TokenStream2>, &'b HashSet<&'a Ident>);
 
-impl VisitMut for RemoveSelf {
-    fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
-        if let syn::Expr::Field(field) = expr {
-            if let syn::Expr::Path(path) = &mut *field.base {
-                if path.path.segments[0].ident == "self" {
-                    let name = match &field.member {
-                        syn::Member::Named(name) => name.clone(),
-                        syn::Member::Unnamed(_) => panic!("unnamed fields not supported"),
-                    };
-                    if self.0 {
-                        assert_eq!(self.1, None);
-                        self.1 = Some(name.clone())
+impl<'a, 'b, 'ast> Visit<'ast> for ValidateLenFields<'a, 'b> {
+    fn visit_expr(&mut self, expr: &'ast syn::Expr) {
+        if self.0.is_some() {
+            return;
+        }
+        match expr {
+            syn::Expr::Field(field) => {
+                if let syn::Expr::Path(path) = &*field.base {
+                    if path.path.segments[0].ident == "self" {
+                        let name = match &field.member {
+                            syn::Member::Named(name) => name.clone(),
+                            syn::Member::Unnamed(_) => panic!("unnamed fields not supported"),
+                        };
+                        if !self.1.contains(&name) {
+                            self.0 = Some(quote_spanned! {name.span()=>
+                                compile_error!("attempting to use field before definition")
+                            })
+                        }
                     }
-                    *expr = syn::Expr::Path(syn::ExprPath {
-                        attrs: Default::default(),
-                        qself: None,
-                        path: syn::Path {
-                            leading_colon: None,
-                            segments: Some::<syn::PathSegment>(name.into()).into_iter().collect(),
-                        },
-                    })
                 }
             }
-        } else {
-            self.0 = false;
-            syn::visit_mut::visit_expr_mut(self, expr)
+            _ => syn::visit::visit_expr(self, expr),
         }
     }
 }
@@ -820,6 +816,8 @@ impl FlatSerializeStruct {
         // Set of field-indexes of fields that use trait-based serialization
         let mut use_trait = HashSet::new();
 
+        let mut seen_fields = HashSet::new();
+
         // Info on how to determine the lengths of variable-length fields
         let field_paths: Vec<Option<ExternalLenFieldInfo>> = self
             .fields
@@ -838,17 +836,18 @@ impl FlatSerializeStruct {
                     let FindSelf(has_self) = has_self;
                     // println!("{} | {}", quote!{ #f }, has_self);
                     if has_self {
-                        let mut len_field = GetLenField(None);
-                        len_field.visit_expr(&array.len);
-                        // let mut len = array.len.clone();
-                        // let mut remove_self = RemoveSelf(true, None);
-                        // remove_self.visit_expr_mut(&mut len);
+                        let mut validate_fields = ValidateLenFields(None, &seen_fields);
+                        validate_fields.visit_expr(&array.len);
                         return Some(ExternalLenFieldInfo {
                             ty: (*array.elem).clone(),
-                            len_expr: array.len.clone(),
+                            len_expr: match validate_fields.0 {
+                                Some(error) => syn::parse2(error).unwrap(),
+                                None => array.len.clone(),
+                            },
                         });
                     }
                 }
+                seen_fields.insert(f.ident.as_ref().unwrap());
                 None
             })
             .collect();
