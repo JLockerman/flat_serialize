@@ -10,7 +10,10 @@ use syn::{
     Attribute, Expr, Field, Ident, Result, Token,
 };
 
-use crate::{FlatSerialize, FlatSerializeEnum, FlatSerializeField, FlatSerializeStruct, FlatSerializeVariant, PerFieldsAttr};
+use crate::{
+    ExternalLenFieldInfo, FlatSerialize, FlatSerializeEnum, FlatSerializeField,
+    FlatSerializeStruct, FlatSerializeVariant, PerFieldsAttr,
+};
 
 use quote::quote_spanned;
 
@@ -60,7 +63,8 @@ impl Parse for FlatSerializeStruct {
         let _struct_token: Token![struct] = input.parse()?;
         let ident = input.parse()?;
         let _brace_token: token::Brace = braced!(content in input);
-        let fields = content.parse_terminated(FlatSerializeField::parse)?;
+        let mut fields = content.parse_terminated(FlatSerializeField::parse)?;
+        validate_self_fields(fields.iter_mut());
         Ok(Self {
             per_field_attrs: vec![],
             attrs: vec![],
@@ -96,7 +100,8 @@ impl Parse for FlatSerializeVariant {
         let _colon_token: Token![:] = input.parse()?;
         let tag_val = input.parse()?;
         let _brace_token: token::Brace = braced!(content in input);
-        let fields = content.parse_terminated(FlatSerializeField::parse)?;
+        let mut fields = content.parse_terminated(FlatSerializeField::parse)?;
+        validate_self_fields(fields.iter_mut());
         Ok(Self {
             tag_val,
             body: FlatSerializeStruct {
@@ -115,18 +120,33 @@ impl Parse for FlatSerializeField {
         // TODO switch to `drain_filter()` once stable
         let path = flat_serialize_attr_path("flatten");
         let mut use_trait = false;
-        field.attrs = field.attrs.into_iter().filter(|attr| {
-            let is_flatten = &attr.path == &path;
-            if is_flatten {
-                use_trait = true;
-                return false
+        field.attrs = field
+            .attrs
+            .into_iter()
+            .filter(|attr| {
+                let is_flatten = &attr.path == &path;
+                if is_flatten {
+                    use_trait = true;
+                    return false;
+                }
+                true
+            })
+            .collect();
+        let mut length_info = None;
+        if let syn::Type::Array(array) = &field.ty {
+            let has_self = has_self_field(&array.len);
+            if has_self {
+                // let self_fields_are_valid = validate_self_field(&array.len, &seen_fields);
+                length_info = Some(ExternalLenFieldInfo {
+                    ty: (*array.elem).clone(),
+                    len_expr: array.len.clone(),
+                });
             }
-            true
-        }).collect();
+        }
         Ok(Self {
             field,
             use_trait,
-
+            length_info,
         })
     }
 }
@@ -216,7 +236,7 @@ impl Parse for PerFieldsAttr {
     }
 }
 
-pub fn has_self_field(expr: &Expr) -> bool {
+fn has_self_field(expr: &Expr) -> bool {
     let mut has_self = FindSelf(false);
     has_self.visit_expr(&expr);
     has_self.0
@@ -246,7 +266,20 @@ impl<'ast> Visit<'ast> for FindSelf {
 /// }
 /// ```
 /// where the position of `len` depends on the value of `len`.
-pub fn validate_self_field<'a>(
+fn validate_self_fields<'a>(fields: impl Iterator<Item = &'a mut FlatSerializeField>) {
+    let mut seen_fields = HashSet::new();
+
+    for f in fields {
+        if let Some(length_info) = &mut f.length_info {
+            if let Err(error) = validate_self_field(&length_info.len_expr, &seen_fields) {
+                length_info.len_expr = syn::parse2(error).unwrap()
+            }
+        }
+        seen_fields.insert(f.ident.as_ref().unwrap());
+    }
+}
+
+fn validate_self_field<'a>(
     expr: &Expr,
     seen_fields: &HashSet<&'a Ident>,
 ) -> std::result::Result<(), TokenStream2> {

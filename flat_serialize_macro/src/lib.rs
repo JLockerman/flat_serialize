@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 
 use proc_macro::TokenStream;
 
@@ -12,8 +11,6 @@ use syn::{
     visit_mut::VisitMut,
     Attribute, Expr, Field, Ident, Token, Type,
 };
-
-use parser::{has_self_field, validate_self_field};
 
 mod parser;
 
@@ -120,6 +117,9 @@ struct FlatSerializeField {
     field: Field,
     /// use the FlattenableRef trait for (de)serialization
     use_trait: bool,
+    // TODO is this mutually exclusive with `use_trait` above? Should we make an
+    // enum to select between them?
+    length_info: Option<ExternalLenFieldInfo>,
 }
 
 /// a `#[flat_serialize::field_attr(fixed = "#[foo]", variable = "#[bar]"))]`
@@ -138,28 +138,24 @@ struct ExternalLenFieldInfo {
 fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
     let ident = input.ident.clone();
 
-    let metadata = input.metadata();
-
     let ref_def = {
-        let alignment_check = input.alignment_check(quote!(0), &metadata);
-        let try_ref = input.fn_try_ref(&metadata);
-        let fill_vec = input.fn_fill_vec(&metadata);
-        let len = input.fn_len(&metadata);
-        let Metadata { field_paths } = metadata;
+        let alignment_check = input.alignment_check(quote!(0));
+        let try_ref = input.fn_try_ref();
+        let fill_vec = input.fn_fill_vec();
+        let len = input.fn_len();
         let fields = input
             .fields
             .iter()
-            .enumerate()
-            .flat_map(|(i, f)| {
+            .flat_map(|f| {
                 let name = f.ident.as_ref().unwrap();
                 let attrs = f.attrs.iter();
                 if f.use_trait {
                     let ty = &f.ty;
                     Some(quote! { #(#attrs)* pub #name: #ty, })
                 } else {
-                    let ty = exposed_ty(&field_paths[i], &f.ty);
+                    let ty = exposed_ty(&f.length_info, &f.ty);
                     let per_field_attrs =
-                        per_field_attrs(&field_paths[i], input.per_field_attrs.iter());
+                        per_field_attrs(&f.length_info, input.per_field_attrs.iter());
                     Some(quote! { #(#per_field_attrs)* #(#attrs)* pub #name: &'a #ty, })
                 }
             });
@@ -310,26 +306,20 @@ struct TryRefBody {
     err_size: TokenStream2,
 }
 
-// type Metadata = (Vec<Option<ExternalLenFieldInfo>>, HashSet<usize>);
-struct Metadata {
-    field_paths: Vec<Option<ExternalLenFieldInfo>>,
-}
-
 impl FlatSerializeEnum {
     fn variants(&self) -> TokenStream2 {
         let id = &self.ident;
         let variants = self.variants.iter().map(|variant| {
-            let fields = variant.body.fields.iter().enumerate().flat_map(|(i, f)| {
-                let Metadata { field_paths } = variant.body.metadata();
+            let fields = variant.body.fields.iter().flat_map(|f| {
                 let name = f.ident.as_ref().unwrap();
                 let attrs = f.attrs.iter();
                 if f.use_trait {
                     let ty = &f.ty;
                     Some(quote! { #(#attrs)* #name: #ty, })
                 } else {
-                    let ty = exposed_ty(&field_paths[i], &f.ty);
+                    let ty = exposed_ty(&f.length_info, &f.ty);
                     let per_field_attrs =
-                        per_field_attrs(&field_paths[i], self.per_field_attrs.iter());
+                        per_field_attrs(&f.length_info, self.per_field_attrs.iter());
                     Some(quote! { #(#per_field_attrs)* #(#attrs)* #name: &'a #ty, })
                 }
             });
@@ -360,7 +350,7 @@ impl FlatSerializeEnum {
 
             let break_label =
                 syn::Lifetime::new(&format!("'tryref_{}", i), proc_macro2::Span::call_site());
-            let metadata = v.body.metadata();
+
             let TryRefBody {
                 vars,
                 body,
@@ -368,7 +358,7 @@ impl FlatSerializeEnum {
                 err_size,
             } = v
                 .body
-                .fn_try_ref_body(&metadata, &break_label);
+                .fn_try_ref_body(&break_label);
 
             quote! {
                 Some(&#tag_val) => {
@@ -410,9 +400,7 @@ impl FlatSerializeEnum {
         let bodies = self.variants.iter().map(|v| {
             let tag_val = &v.tag_val;
             let variant = &v.body.ident;
-            let metadata = v.body.metadata();
-
-            let (fields, fill_vec_with) = v.body.fill_vec_body(&metadata);
+            let (fields, fill_vec_with) = v.body.fill_vec_body();
             quote! {
                 &#id::#variant { #fields } => {
                     let #tag_ident: &#tag_ty = &#tag_val;
@@ -438,14 +426,12 @@ impl FlatSerializeEnum {
         let id = &self.ident;
         let bodies = self.variants.iter().map(|v| {
             let variant = &v.body.ident;
-            let Metadata { field_paths } = v.body.metadata();
 
             let size = v
                 .body
                 .fields
                 .iter()
-                .enumerate()
-                .map(|(i, f)| size_fn(&field_paths[i], f));
+                .map(|f| size_fn(&f.length_info, f));
             let fields = v.body.fields.iter().map(|f| f.ident.as_ref().unwrap());
             quote! {
                 &#id::#variant { #(#fields),* } => {
@@ -468,7 +454,6 @@ impl FlatSerializeStruct {
     fn alignment_check(
         &self,
         start: TokenStream2,
-        Metadata{field_paths}: &Metadata,
     ) -> TokenStream2 {
         // TODO
         if self.fields.iter().any(|f| f.use_trait) {
@@ -485,10 +470,10 @@ impl FlatSerializeStruct {
         let mut size = quote! { #start };
         let mut min_align = quote! { 8 };
 
-        let checks = self.fields.iter().enumerate().map(|(i, f)| {
+        let checks = self.fields.iter().map(|f| {
             use syn::spanned::Spanned;
             use std::mem::replace;
-            match &field_paths[i] {
+            match &f.length_info {
                 None => {
                     let ty = &f.ty;
                     let new_size = quote!{#size + size_of::<#ty>()};
@@ -529,7 +514,6 @@ impl FlatSerializeStruct {
 
     fn fn_try_ref(
         &self,
-        metadata: &Metadata,
     ) -> TokenStream2 {
         let break_label = syn::Lifetime::new("'tryref", proc_macro2::Span::call_site());
         let id = &self.ident;
@@ -538,7 +522,7 @@ impl FlatSerializeStruct {
             body,
             set_fields,
             err_size,
-        } = self.fn_try_ref_body(metadata, &break_label);
+        } = self.fn_try_ref_body(&break_label);
         quote! {
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
@@ -557,7 +541,6 @@ impl FlatSerializeStruct {
 
     fn fn_try_ref_body(
         &self,
-        Metadata{field_paths}: &Metadata,
         break_label: &syn::Lifetime,
     ) -> TryRefBody {
         let field_names = self
@@ -567,12 +550,11 @@ impl FlatSerializeStruct {
         let ty_info: Vec<_> = self
             .fields
             .iter()
-            .enumerate()
-            .map(|(i, f)| (exposed_ty(&field_paths[i], &f.ty), f.use_trait))
+            .map(|f| (exposed_ty(&f.length_info, &f.ty), f))
             .collect();
         let ty1 = ty_info
             .iter()
-            .map(|(ty, use_trait)| if *use_trait {
+            .map(|(ty, f)| if f.use_trait {
                     quote! { Option<#ty> }
                 } else {
                     quote! { Option<&#ty> }
@@ -582,13 +564,13 @@ impl FlatSerializeStruct {
         let field3 = field_names;
 
         let vars = quote!( #(let mut #field1: #ty1 = None;)* );
-        let try_wrap_fields = self.fields.iter().enumerate().map(|(i, f)| {
+        let try_wrap_fields = self.fields.iter().map(|f| {
             // TODO
             try_wrap_field(
                 &f.ident.as_ref().unwrap(),
                 &f.ty,
                 break_label,
-                &field_paths[i],
+                &f.length_info,
                 f.use_trait,
             )
         });
@@ -598,8 +580,7 @@ impl FlatSerializeStruct {
 
         let err_size = ty_info
             .iter()
-            .enumerate()
-            .map(|(i, (t, use_trait))| err_size(t, &field_paths[i], *use_trait));
+            .map(|(t, f)| err_size(t, &f.length_info, f.use_trait));
         let err_size = quote!( #( + #err_size)* );
         TryRefBody {
             vars,
@@ -611,10 +592,9 @@ impl FlatSerializeStruct {
 
     fn fn_fill_vec(
         &self,
-        metadata: &Metadata,
     ) -> TokenStream2 {
         let id = &self.ident;
-        let (fields, fill_vec_with) = self.fill_vec_body(metadata);
+        let (fields, fill_vec_with) = self.fill_vec_body();
         quote! {
             #[allow(unused_assignments, unused_variables)]
             pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
@@ -626,14 +606,13 @@ impl FlatSerializeStruct {
     }
     fn fill_vec_body(
         &self,
-        Metadata{field_paths}: &Metadata,
     ) -> (TokenStream2, TokenStream2) {
         //FIXME assert multiple values of counters are equal...
-        let fill_vec_with = self.fields.iter().enumerate().map(|(i, f)| {
+        let fill_vec_with = self.fields.iter().map(|f| {
             if f.use_trait {
                 return fill_vec_with_trait(f);
             }
-            fill_vec_with_field(f, &field_paths[i])
+            fill_vec_with_field(f, &f.length_info)
         });
         let fill_vec_with = quote!( #(#fill_vec_with);* );
 
@@ -644,13 +623,11 @@ impl FlatSerializeStruct {
 
     fn fn_len(
         &self,
-        Metadata{field_paths}: &Metadata,
     ) -> TokenStream2 {
         let size = self
             .fields
             .iter()
-            .enumerate()
-            .map(|(i, f)| size_fn(&field_paths[i], f));
+            .map(|f| size_fn(&f.length_info, f));
         let field = self.fields.iter().map(|f| f.ident.as_ref().unwrap());
         let id = &self.ident;
 
@@ -661,34 +638,6 @@ impl FlatSerializeStruct {
                 0usize #(+ #size)*
             }
         }
-    }
-
-    fn metadata(&self) -> Metadata {
-        let mut seen_fields = HashSet::new();
-
-        // Info on how to determine the lengths of variable-length fields
-        let field_paths: Vec<Option<ExternalLenFieldInfo>> = self
-            .fields
-            .iter()
-            .map(|f| {
-                if let syn::Type::Array(array) = &f.ty {
-                    let has_self = has_self_field(&array.len);
-                    if has_self {
-                        let self_fields_are_valid = validate_self_field(&array.len, &seen_fields);
-                        return Some(ExternalLenFieldInfo {
-                            ty: (*array.elem).clone(),
-                            len_expr: match self_fields_are_valid {
-                                Ok(()) => array.len.clone(),
-                                Err(error) => syn::parse2(error).unwrap(),
-                            },
-                        });
-                    }
-                }
-                seen_fields.insert(f.ident.as_ref().unwrap());
-                None
-            })
-            .collect();
-        Metadata {field_paths}
     }
 }
 
@@ -774,6 +723,7 @@ fn fill_vec_with_trait(field: &Field) -> TokenStream2 {
     }
 }
 
+// TODO take FlatSerializeField instead
 fn fill_vec_with_field(field: &Field, info: &Option<ExternalLenFieldInfo>) -> TokenStream2 {
     let ident = field.ident.as_ref().unwrap();
     match info {
@@ -831,6 +781,7 @@ fn err_size(
     }
 }
 
+// TODO take FlatSerializeField instead?
 fn exposed_ty(info: &Option<ExternalLenFieldInfo>, nominal_ty: &Type) -> TokenStream2 {
     match info {
         None => quote! { #nominal_ty },
@@ -838,6 +789,7 @@ fn exposed_ty(info: &Option<ExternalLenFieldInfo>, nominal_ty: &Type) -> TokenSt
     }
 }
 
+// TODO take FlatSerializeField instead
 fn size_fn(info: &Option<ExternalLenFieldInfo>, field: &FlatSerializeField) -> TokenStream2 {
     let ident = field.ident.as_ref().unwrap();
     let nominal_ty = &field.ty;
