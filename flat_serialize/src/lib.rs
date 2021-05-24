@@ -1,3 +1,5 @@
+use std::{convert::TryInto, marker::PhantomData, ops::Index, ptr::NonNull};
+
 #[derive(Debug)]
 pub enum WrapErr {
     NotEnoughBytes(usize),
@@ -61,6 +63,83 @@ pub unsafe trait FlatSerializable: Sized {
     }
 }
 
+pub struct NdRef<'s, T, const N: usize> {
+    pointer: NonNull<T>,
+    sizes: [usize; N],
+    pd: PhantomData<&'s [T]>,
+}
+
+impl<'s, T> From<&'s [T]> for NdRef<'s, T, 1> {
+    fn from(s: &'s [T]) -> Self {
+        let ptr = s.as_ptr() as *mut _;
+        let len = s.len();
+        unsafe {
+            NdRef::from_raw_parts(NonNull::new(ptr).unwrap(), [len])
+        }
+    }
+}
+
+impl<'s, T> Into<&'s [T]> for NdRef<'s, T, 1> {
+    fn into(self) -> &'s [T] {
+        unsafe {
+            std::slice::from_raw_parts(self.pointer.as_ptr() as _, self.sizes[0])
+        }
+    }
+}
+
+impl<'s, T, const N: usize> NdRef<'s, T, N> {
+    pub unsafe fn from_raw_parts(pointer: NonNull<T>, sizes: [usize; N]) -> Self {
+        Self {
+            pointer,
+            sizes,
+            pd: PhantomData,
+        }
+    }
+
+    fn offset_of(&self, index: [usize; N]) -> usize {
+        if N < 1 {
+            panic!("empty")
+        }
+        let mut offset = 0;
+        let mut size = 1;
+        for i in 0..N {
+            if index[i] >= self.sizes[i] {
+                panic!(
+                    "index {} out of bounds: index {}, size {}",
+                    i,
+                    index[i],
+                    self.sizes[i]
+                )
+            }
+            if i > 0 {
+                size *= self.sizes[i - 1];
+            }
+            // FIXME overflow
+            offset += index[i] * size;
+        }
+        offset
+    }
+}
+// int[3][2]
+// [[int; 3]; 2]
+// 2 x 3
+//   a b c
+//   d e f
+// a b c d e f
+// [0][1] = b = (3 * 0) + 1
+// [1][0] = d = (3 * 1) + 0
+
+impl<'s, T, const N: usize> Index<[usize; N]> for NdRef<'s, T, N> {
+    type Output = T;
+
+    fn index(&self, index: [usize; N]) -> &Self::Output {
+        let offset = self.offset_of(index);
+        unsafe {
+            &*self.pointer.as_ptr().offset(offset.try_into().unwrap())
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! impl_flat_serializable {
     ($($typ:ty)+) => {
@@ -105,6 +184,8 @@ unsafe impl<T> FlatSerializable for T where T: Sized {}
 
 #[cfg(test)]
 mod tests {
+    use std::mem::size_of;
+
     use crate::*;
 
     use flat_serialize_macro::flat_serialize;
@@ -413,6 +494,42 @@ mod tests {
             a: u32,
             padding: [u8; 4], // with this commented out, the error should be on b
             b: f64,
+        }
+    }
+
+
+    flat_serialize! {
+        #[derive(Debug)]
+        struct NestedVar {
+            data_len1: u32,
+            data_len2: u32,
+            data: [[u8; self.data_len2]; self.data_len1],
+        }
+    }
+    #[test]
+    fn test_nd_ref() {
+        let mut arrays: Box<[[[String; 3]; 6]; 2]> = Default::default();
+        let base = arrays.as_ptr() as usize;
+        for c in 0..2 {
+            for b in 0..6 {
+                for a in 0..3 {
+                    arrays[c][b][a] = format!("[{}, {}, {}]", a, b, c);
+                }
+            }
+        }
+
+        let ptr = NonNull::new(arrays.as_ptr() as *const String as *mut String).unwrap();
+        let nd_ref = unsafe { NdRef::from_raw_parts(ptr, [3, 6, 2]) };
+        for c in 0..2 {
+            for b in 0..6 {
+                for a in 0..3 {
+                    let got = &nd_ref[[a, b, c]];
+                    let expected = format!("[{}, {}, {}]", a, b, c);
+                    let offset = (&arrays[c][b][a] as *const _ as usize - base) / size_of::<String>();
+                    assert_eq!(offset, nd_ref.offset_of([a, b, c]));
+                    assert_eq!(got, &expected);
+                }
+            }
         }
     }
 }
