@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, ops::Deref};
 
 use proc_macro2::TokenStream as TokenStream2;
 
@@ -10,28 +10,13 @@ use syn::{
     Attribute, Expr, Field, Ident, Result, Token,
 };
 
-use crate::{
-    FlatSerialize,
-    FlatSerializeEnum,
-    FlatSerializeStruct,
-    FlatSerializeVariant,
-    PerFieldsAttr,
-};
+use crate::{FlatSerialize, FlatSerializeEnum, FlatSerializeField, FlatSerializeStruct, FlatSerializeVariant, PerFieldsAttr};
 
 use quote::quote_spanned;
 
 const LIBRARY_MARKER: &str = "flat_serialize";
 
-/// an iterator of attributes with all the attributes interpreted by
-/// `flat_serialize` filtered out
-pub fn filtered_attrs<'a>(
-    attrs: impl Iterator<Item = &'a Attribute>,
-) -> impl Iterator<Item = &'a Attribute> {
-    let path = flat_serialize_attr_path("flatten");
-    attrs.filter(move |a| a.path != path)
-}
-
-pub fn flat_serialize_attr_path(att_name: &str) -> syn::Path {
+fn flat_serialize_attr_path(att_name: &str) -> syn::Path {
     let crate_name = quote::format_ident!("{}", LIBRARY_MARKER);
     let att_name = quote::format_ident!("{}", att_name);
     syn::parse_quote! { #crate_name :: #att_name }
@@ -75,7 +60,7 @@ impl Parse for FlatSerializeStruct {
         let _struct_token: Token![struct] = input.parse()?;
         let ident = input.parse()?;
         let _brace_token: token::Brace = braced!(content in input);
-        let fields = content.parse_terminated(Field::parse_named)?;
+        let fields = content.parse_terminated(FlatSerializeField::parse)?;
         Ok(Self {
             per_field_attrs: vec![],
             attrs: vec![],
@@ -111,7 +96,7 @@ impl Parse for FlatSerializeVariant {
         let _colon_token: Token![:] = input.parse()?;
         let tag_val = input.parse()?;
         let _brace_token: token::Brace = braced!(content in input);
-        let fields = content.parse_terminated(Field::parse_named)?;
+        let fields = content.parse_terminated(FlatSerializeField::parse)?;
         Ok(Self {
             tag_val,
             body: FlatSerializeStruct {
@@ -121,6 +106,37 @@ impl Parse for FlatSerializeVariant {
                 fields,
             },
         })
+    }
+}
+
+impl Parse for FlatSerializeField {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut field = Field::parse_named(input)?;
+        // TODO switch to `drain_filter()` once stable
+        let path = flat_serialize_attr_path("flatten");
+        let mut use_trait = false;
+        field.attrs = field.attrs.into_iter().filter(|attr| {
+            let is_flatten = &attr.path == &path;
+            if is_flatten {
+                use_trait = true;
+                return false
+            }
+            true
+        }).collect();
+        Ok(Self {
+            field,
+            use_trait,
+
+        })
+    }
+}
+
+// TODO should we leave this in?
+impl Deref for FlatSerializeField {
+    type Target = Field;
+
+    fn deref(&self) -> &Self::Target {
+        &self.field
     }
 }
 

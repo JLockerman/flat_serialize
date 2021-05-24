@@ -13,7 +13,7 @@ use syn::{
     Attribute, Expr, Field, Ident, Token, Type,
 };
 
-use parser::{filtered_attrs, flat_serialize_attr_path, has_self_field, validate_self_field};
+use parser::{has_self_field, validate_self_field};
 
 mod parser;
 
@@ -58,6 +58,11 @@ struct FlatSerializeEnum {
     ident: Ident,
     tag: Field,
     variants: Punctuated<FlatSerializeVariant, Token![,]>,
+}
+
+struct FlatSerializeVariant {
+    tag_val: Expr,
+    body: FlatSerializeStruct,
 }
 
 /// a `flat_serialize`d struct e.g.
@@ -108,12 +113,13 @@ struct FlatSerializeStruct {
     per_field_attrs: Vec<PerFieldsAttr>,
     attrs: Vec<Attribute>,
     ident: Ident,
-    fields: Punctuated<Field, Token![,]>,
+    fields: Punctuated<FlatSerializeField, Token![,]>,
 }
 
-struct FlatSerializeVariant {
-    tag_val: Expr,
-    body: FlatSerializeStruct,
+struct FlatSerializeField {
+    field: Field,
+    /// use the FlattenableRef trait for (de)serialization
+    use_trait: bool,
 }
 
 /// a `#[flat_serialize::field_attr(fixed = "#[foo]", variable = "#[bar]"))]`
@@ -139,15 +145,15 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
         let try_ref = input.fn_try_ref(&metadata);
         let fill_vec = input.fn_fill_vec(&metadata);
         let len = input.fn_len(&metadata);
-        let Metadata { field_paths, use_trait } = metadata;
+        let Metadata { field_paths } = metadata;
         let fields = input
             .fields
             .iter()
             .enumerate()
             .flat_map(|(i, f)| {
                 let name = f.ident.as_ref().unwrap();
-                let attrs = filtered_attrs(f.attrs.iter());
-                if use_trait.contains(&i) {
+                let attrs = f.attrs.iter();
+                if f.use_trait {
                     let ty = &f.ty;
                     Some(quote! { #(#attrs)* pub #name: #ty, })
                 } else {
@@ -307,7 +313,6 @@ struct TryRefBody {
 // type Metadata = (Vec<Option<ExternalLenFieldInfo>>, HashSet<usize>);
 struct Metadata {
     field_paths: Vec<Option<ExternalLenFieldInfo>>,
-    use_trait: HashSet<usize>,
 }
 
 impl FlatSerializeEnum {
@@ -315,10 +320,10 @@ impl FlatSerializeEnum {
         let id = &self.ident;
         let variants = self.variants.iter().map(|variant| {
             let fields = variant.body.fields.iter().enumerate().flat_map(|(i, f)| {
-                let Metadata { field_paths, use_trait } = variant.body.metadata();
+                let Metadata { field_paths } = variant.body.metadata();
                 let name = f.ident.as_ref().unwrap();
-                let attrs = filtered_attrs(f.attrs.iter());
-                if use_trait.contains(&i) {
+                let attrs = f.attrs.iter();
+                if f.use_trait {
                     let ty = &f.ty;
                     Some(quote! { #(#attrs)* #name: #ty, })
                 } else {
@@ -433,14 +438,14 @@ impl FlatSerializeEnum {
         let id = &self.ident;
         let bodies = self.variants.iter().map(|v| {
             let variant = &v.body.ident;
-            let Metadata { field_paths, use_trait } = v.body.metadata();
+            let Metadata { field_paths } = v.body.metadata();
 
             let size = v
                 .body
                 .fields
                 .iter()
                 .enumerate()
-                .map(|(i, f)| size_fn(&field_paths[i], use_trait.contains(&i), f));
+                .map(|(i, f)| size_fn(&field_paths[i], f));
             let fields = v.body.fields.iter().map(|f| f.ident.as_ref().unwrap());
             quote! {
                 &#id::#variant { #(#fields),* } => {
@@ -463,9 +468,10 @@ impl FlatSerializeStruct {
     fn alignment_check(
         &self,
         start: TokenStream2,
-        Metadata{field_paths, use_trait}: &Metadata,
+        Metadata{field_paths}: &Metadata,
     ) -> TokenStream2 {
-        if !use_trait.is_empty() {
+        // TODO
+        if self.fields.iter().any(|f| f.use_trait) {
             //TODO
             return quote! {};
         }
@@ -551,46 +557,49 @@ impl FlatSerializeStruct {
 
     fn fn_try_ref_body(
         &self,
-        Metadata{field_paths, use_trait}: &Metadata,
+        Metadata{field_paths}: &Metadata,
         break_label: &syn::Lifetime,
     ) -> TryRefBody {
-        let (field, ty): (Vec<_>, Vec<_>) = self
+        let field_names = self
+            .fields
+            .iter()
+            .map(|f| &f.ident);
+        let ty_info: Vec<_> = self
             .fields
             .iter()
             .enumerate()
-            .map(|(i, f)| (&f.ident, exposed_ty(&field_paths[i], &f.ty)))
-            .unzip();
-        let (field1, ty1) = (
-            field.iter(),
-            ty.iter().enumerate().map(|(i, ty)| {
-                if use_trait.contains(&i) {
+            .map(|(i, f)| (exposed_ty(&field_paths[i], &f.ty), f.use_trait))
+            .collect();
+        let ty1 = ty_info
+            .iter()
+            .map(|(ty, use_trait)| if *use_trait {
                     quote! { Option<#ty> }
                 } else {
                     quote! { Option<&#ty> }
-                }
-            }),
-        );
-        let field2 = field.iter();
-        let field3 = field.iter();
+                });
+        let field1 = field_names.clone();
+        let field2 = field_names.clone();
+        let field3 = field_names;
 
         let vars = quote!( #(let mut #field1: #ty1 = None;)* );
         let try_wrap_fields = self.fields.iter().enumerate().map(|(i, f)| {
+            // TODO
             try_wrap_field(
                 &f.ident.as_ref().unwrap(),
                 &f.ty,
                 break_label,
                 &field_paths[i],
-                use_trait.contains(&i),
+                f.use_trait,
             )
         });
         let body = quote! ( #(#try_wrap_fields)* );
 
         let set_fields = quote!( #(#field2: #field3.unwrap()),* );
 
-        let err_size = ty
+        let err_size = ty_info
             .iter()
             .enumerate()
-            .map(|(i, t)| err_size(t, &field_paths[i], use_trait.contains(&i)));
+            .map(|(i, (t, use_trait))| err_size(t, &field_paths[i], *use_trait));
         let err_size = quote!( #( + #err_size)* );
         TryRefBody {
             vars,
@@ -617,11 +626,11 @@ impl FlatSerializeStruct {
     }
     fn fill_vec_body(
         &self,
-        Metadata{field_paths, use_trait}: &Metadata,
+        Metadata{field_paths}: &Metadata,
     ) -> (TokenStream2, TokenStream2) {
         //FIXME assert multiple values of counters are equal...
         let fill_vec_with = self.fields.iter().enumerate().map(|(i, f)| {
-            if use_trait.contains(&i) {
+            if f.use_trait {
                 return fill_vec_with_trait(f);
             }
             fill_vec_with_field(f, &field_paths[i])
@@ -635,13 +644,13 @@ impl FlatSerializeStruct {
 
     fn fn_len(
         &self,
-        Metadata{field_paths, use_trait}: &Metadata,
+        Metadata{field_paths}: &Metadata,
     ) -> TokenStream2 {
         let size = self
             .fields
             .iter()
             .enumerate()
-            .map(|(i, f)| size_fn(&field_paths[i], use_trait.contains(&i), f));
+            .map(|(i, f)| size_fn(&field_paths[i], f));
         let field = self.fields.iter().map(|f| f.ident.as_ref().unwrap());
         let id = &self.ident;
 
@@ -655,24 +664,13 @@ impl FlatSerializeStruct {
     }
 
     fn metadata(&self) -> Metadata {
-        // Set of field-indexes of fields that use trait-based serialization
-        let mut use_trait = HashSet::new();
-
         let mut seen_fields = HashSet::new();
 
         // Info on how to determine the lengths of variable-length fields
         let field_paths: Vec<Option<ExternalLenFieldInfo>> = self
             .fields
             .iter()
-            .enumerate()
-            .map(|(i, f)| {
-                // TODO is there a better way to get this?
-                let path = flat_serialize_attr_path("flatten");
-                let uses_trait = f.attrs.iter().any(|att| att.path == path);
-                if uses_trait {
-                    use_trait.insert(i);
-                    return None;
-                }
+            .map(|f| {
                 if let syn::Type::Array(array) = &f.ty {
                     let has_self = has_self_field(&array.len);
                     if has_self {
@@ -690,10 +688,11 @@ impl FlatSerializeStruct {
                 None
             })
             .collect();
-        Metadata {field_paths, use_trait}
+        Metadata {field_paths}
     }
 }
 
+// TODO switch to taking a FlatSerializeField once enums use that for their tag field
 fn try_wrap_field(
     field: &Ident,
     ty: &Type,
@@ -839,10 +838,10 @@ fn exposed_ty(info: &Option<ExternalLenFieldInfo>, nominal_ty: &Type) -> TokenSt
     }
 }
 
-fn size_fn(info: &Option<ExternalLenFieldInfo>, use_trait: bool, field: &Field) -> TokenStream2 {
+fn size_fn(info: &Option<ExternalLenFieldInfo>, field: &FlatSerializeField) -> TokenStream2 {
     let ident = field.ident.as_ref().unwrap();
     let nominal_ty = &field.ty;
-    if use_trait {
+    if field.use_trait {
         return quote! {
             <#nominal_ty as FlattenableRef>::len(&#ident)
         };
