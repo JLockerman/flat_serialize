@@ -87,7 +87,12 @@ impl Parse for FlatSerializeEnum {
             per_field_attrs: vec![],
             attrs: vec![],
             ident,
-            tag,
+            tag: FlatSerializeField {
+                field: tag,
+                // TODO can we allow these?
+                use_trait: false,
+                length_info: None,
+            },
             variants,
         })
     }
