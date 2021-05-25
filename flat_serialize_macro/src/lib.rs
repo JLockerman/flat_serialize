@@ -153,7 +153,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                     let ty = &f.ty;
                     Some(quote! { #(#attrs)* pub #name: #ty, })
                 } else {
-                    let ty = exposed_ty(&f);
+                    let ty = f.exposed_ty();
                     let per_field_attrs =
                         per_field_attrs(&f.length_info, input.per_field_attrs.iter());
                     Some(quote! { #(#per_field_attrs)* #(#attrs)* pub #name: &'a #ty, })
@@ -317,7 +317,7 @@ impl FlatSerializeEnum {
                     let ty = &f.ty;
                     Some(quote! { #(#attrs)* #name: #ty, })
                 } else {
-                    let ty = exposed_ty(&f);
+                    let ty = f.exposed_ty();
                     let per_field_attrs =
                         per_field_attrs(&f.length_info, self.per_field_attrs.iter());
                     Some(quote! { #(#per_field_attrs)* #(#attrs)* #name: &'a #ty, })
@@ -338,7 +338,7 @@ impl FlatSerializeEnum {
     }
     fn fn_try_ref(&self) -> TokenStream2 {
         let break_label = syn::Lifetime::new("'tryref_tag", proc_macro2::Span::call_site());
-        let try_wrap_tag = try_wrap_field(&self.tag, &break_label);
+        let try_wrap_tag = self.tag.try_wrap(&break_label);
         let id = &self.ident;
         let tag_ty = &self.tag.ty;
 
@@ -396,7 +396,7 @@ impl FlatSerializeEnum {
     fn fn_fill_vec(&self) -> TokenStream2 {
         let tag_ty = &self.tag.ty;
         let tag_ident = self.tag.ident.as_ref().unwrap();
-        let fill_vec_tag = fill_vec_with_field(&self.tag);
+        let fill_vec_tag = self.tag.fill_vec();
         let id = &self.ident;
         let bodies = self.variants.iter().map(|v| {
             let tag_val = &v.tag_val;
@@ -432,7 +432,7 @@ impl FlatSerializeEnum {
                 .body
                 .fields
                 .iter()
-                .map(size_fn);
+                .map(|f| f.size_fn());
             let fields = v.body.fields.iter().map(|f| f.ident.as_ref().unwrap());
             quote! {
                 &#id::#variant { #(#fields),* } => {
@@ -552,7 +552,7 @@ impl FlatSerializeStruct {
             .fields
             .iter()
             .map(|f| {
-                let ty = exposed_ty(&f);
+                let ty = f.exposed_ty();
                 if f.use_trait {
                     quote! { Option<#ty> }
                 } else {
@@ -564,12 +564,7 @@ impl FlatSerializeStruct {
         let field3 = field_names;
 
         let vars = quote!( #(let mut #field1: #ty1 = None;)* );
-        let try_wrap_fields = self.fields.iter().map(|f| {
-            try_wrap_field(
-                f,
-                break_label,
-            )
-        });
+        let try_wrap_fields = self.fields.iter().map(|f| f.try_wrap(break_label));
         let body = quote! ( #(#try_wrap_fields)* );
 
         let set_fields = quote!( #(#field2: #field3.unwrap()),* );
@@ -577,7 +572,7 @@ impl FlatSerializeStruct {
         let err_size = self
         .fields
             .iter()
-            .map(err_size);
+            .map(|f| f.err_size());
         let err_size = quote!( #( + #err_size)* );
         TryRefBody {
             vars,
@@ -605,12 +600,7 @@ impl FlatSerializeStruct {
         &self,
     ) -> (TokenStream2, TokenStream2) {
         //FIXME assert multiple values of counters are equal...
-        let fill_vec_with = self.fields.iter().map(|f| {
-            if f.use_trait {
-                return fill_vec_with_trait(f);
-            }
-            fill_vec_with_field(f)
-        });
+        let fill_vec_with = self.fields.iter().map(|f| f.fill_vec());
         let fill_vec_with = quote!( #(#fill_vec_with);* );
 
         let field = self.fields.iter().map(|f| f.ident.as_ref().unwrap());
@@ -624,7 +614,7 @@ impl FlatSerializeStruct {
         let size = self
             .fields
             .iter()
-            .map(size_fn);
+            .map(|f| f.size_fn());
         let field = self.fields.iter().map(|f| f.ident.as_ref().unwrap());
         let id = &self.ident;
 
@@ -638,170 +628,177 @@ impl FlatSerializeStruct {
     }
 }
 
-fn try_wrap_field(
-    field: &FlatSerializeField,
-    break_label: &syn::Lifetime,
-) -> TokenStream2 {
-    let ident = field.ident.as_ref().unwrap();
-    let ty = &field.ty;
+impl FlatSerializeField {
 
-    if field.use_trait {
-        return quote! {
-            let __packet_macro_read_len: usize = {
-                let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
-                let (__packet_macro_field, __packet_macro_rem_bytes) = match <#ty as FlattenableRef>::try_ref(__packet_macro_bytes) {
-                    Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) =>
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
-                    Err(..) => break #break_label
+    fn try_wrap(&self, break_label: &syn::Lifetime,) -> TokenStream2 {
+        let ident = self.ident.as_ref().unwrap();
+        let ty = &self.ty;
 
+        if self.use_trait {
+            return quote! {
+                let __packet_macro_read_len: usize = {
+                    let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
+                    let (__packet_macro_field, __packet_macro_rem_bytes) = match <#ty as FlattenableRef>::try_ref(__packet_macro_bytes) {
+                        Ok((f, b)) => (f, b),
+                        Err(WrapErr::InvalidTag(offset)) =>
+                            return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
+                        Err(..) => break #break_label
+
+                    };
+                    let __packet_macro_size = __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
+                    __packet_macro_bytes = __packet_macro_rem_bytes;
+                    #ident = Some(__packet_macro_field);
+                    __packet_macro_read_len + __packet_macro_size
                 };
-                let __packet_macro_size = __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                #ident = Some(__packet_macro_field);
-                __packet_macro_read_len + __packet_macro_size
             };
-        };
-    }
-    match &field.length_info {
-        Some(info @ ExternalLenFieldInfo { .. }) => {
-            let count = info.len_from_bytes();
-            let ty = &info.ty;
-            quote! {
-                let __packet_macro_read_len: usize = {
-                    let __packet_macro_count = #count;
-                    let __packet_macro_size = ::std::mem::size_of::<#ty>() * __packet_macro_count;
-                    let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                    if __packet_macro_bytes.len() < __packet_macro_size {
-                        break #break_label
-                    }
-                    let (__packet_macro_field_bytes, __packet_macro_rem_bytes) =
-                        __packet_macro_bytes.split_at(__packet_macro_size);
-                    let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
-                    let __packet_macro_field = ::std::slice::from_raw_parts(
-                        __packet_macro_field_ptr as *const #ty, __packet_macro_count);
-                    debug_assert_eq!(
-                        __packet_macro_field_ptr.offset(__packet_macro_size as isize) as usize,
-                        __packet_macro_field.as_ptr().offset(__packet_macro_count as isize) as usize
-                    );
-                    __packet_macro_bytes = __packet_macro_rem_bytes;
-                    #ident = Some(__packet_macro_field);
-                    __packet_macro_read_len
-                };
-            }
         }
-        None => {
-            quote! {
-                let __packet_macro_read_len: usize = {
-                    let __packet_macro_size = ::std::mem::size_of::<#ty>();
-                    let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                    if __packet_macro_bytes.len() < __packet_macro_size {
-                        break #break_label
-                    }
-                    let (__packet_macro_field, __packet_macro_rem_bytes) =
-                        __packet_macro_bytes.split_at(__packet_macro_size);
-                    let __packet_macro_field: &#ty =
-                        ::std::mem::transmute(__packet_macro_field.as_ptr());
-                    __packet_macro_bytes = __packet_macro_rem_bytes;
-                    #ident = Some(__packet_macro_field);
-                    __packet_macro_read_len
-                };
-            }
-        }
-    }
-}
-
-fn fill_vec_with_trait(field: &Field) -> TokenStream2 {
-    let ident = field.ident.as_ref().unwrap();
-    let ty = &field.ty;
-    quote! {
-        <#ty as FlattenableRef>::fill_vec(&#ident, __packet_macro_bytes);
-    }
-}
-
-// TODO take FlatSerializeField instead
-fn fill_vec_with_field(field: &FlatSerializeField) -> TokenStream2 {
-    let ident = field.ident.as_ref().unwrap();
-    match &field.length_info {
-        Some(info) => {
-            let count = info.counter_expr();
-            let ty = &info.ty;
-            quote! {
-                unsafe {
-                    let __packet_field_count = #count;
-                    let #ident = &#ident[..__packet_field_count];
-                    let __packet_field_size =
-                        ::std::mem::size_of::<#ty>() * __packet_field_count;
-                    let __packet_field_field_bytes = #ident.as_ptr() as *const u8;
-                    let __packet_field_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+        match &self.length_info {
+            Some(info @ ExternalLenFieldInfo { .. }) => {
+                let count = info.len_from_bytes();
+                let ty = &info.ty;
+                quote! {
+                    let __packet_macro_read_len: usize = {
+                        let __packet_macro_count = #count;
+                        let __packet_macro_size = ::std::mem::size_of::<#ty>() * __packet_macro_count;
+                        let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                        if __packet_macro_bytes.len() < __packet_macro_size {
+                            break #break_label
+                        }
+                        let (__packet_macro_field_bytes, __packet_macro_rem_bytes) =
+                            __packet_macro_bytes.split_at(__packet_macro_size);
+                        let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
+                        let __packet_macro_field = ::std::slice::from_raw_parts(
+                            __packet_macro_field_ptr as *const #ty, __packet_macro_count);
+                        debug_assert_eq!(
+                            __packet_macro_field_ptr.offset(__packet_macro_size as isize) as usize,
+                            __packet_macro_field.as_ptr().offset(__packet_macro_count as isize) as usize
+                        );
+                        __packet_macro_bytes = __packet_macro_rem_bytes;
+                        #ident = Some(__packet_macro_field);
+                        __packet_macro_read_len
+                    };
                 }
             }
-        }
-        None => {
-            let ty = &field.ty;
-            quote! {
-                unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<#ty>();
-                    let __packet_field_bytes = #ident as *const #ty as *const u8;
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            None => {
+                quote! {
+                    let __packet_macro_read_len: usize = {
+                        let __packet_macro_size = ::std::mem::size_of::<#ty>();
+                        let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                        if __packet_macro_bytes.len() < __packet_macro_size {
+                            break #break_label
+                        }
+                        let (__packet_macro_field, __packet_macro_rem_bytes) =
+                            __packet_macro_bytes.split_at(__packet_macro_size);
+                        let __packet_macro_field: &#ty =
+                            ::std::mem::transmute(__packet_macro_field.as_ptr());
+                        __packet_macro_bytes = __packet_macro_rem_bytes;
+                        #ident = Some(__packet_macro_field);
+                        __packet_macro_read_len
+                    };
                 }
             }
         }
     }
-}
 
-fn err_size(field: &FlatSerializeField) -> TokenStream2 {
-    let ty = exposed_ty(field);
-    if field.use_trait {
-        return quote! {
-            <#ty as FlattenableRef>::min_len()
-        };
+    fn fill_vec(&self) -> TokenStream2 {
+        if self.use_trait {
+            self.fill_vec_with_trait()
+        } else {
+            self.fill_vec_with_field()
+        }
     }
-    match &field.length_info {
-        Some(info @ ExternalLenFieldInfo { .. }) => {
-            let count = info.err_size_expr();
-            let ty = &info.ty;
-            quote! {
-                (::std::mem::size_of::<#ty>()
-                    * (#count))
+
+    fn fill_vec_with_trait(&self) -> TokenStream2 {
+        let ident = self.ident.as_ref().unwrap();
+        let ty = &self.ty;
+        quote! {
+            <#ty as FlattenableRef>::fill_vec(&#ident, __packet_macro_bytes);
+        }
+    }
+
+    fn fill_vec_with_field(&self) -> TokenStream2 {
+        let ident = self.ident.as_ref().unwrap();
+        match &self.length_info {
+            Some(info) => {
+                let count = info.counter_expr();
+                let ty = &info.ty;
+                quote! {
+                    unsafe {
+                        let __packet_field_count = #count;
+                        let #ident = &#ident[..__packet_field_count];
+                        let __packet_field_size =
+                            ::std::mem::size_of::<#ty>() * __packet_field_count;
+                        let __packet_field_field_bytes = #ident.as_ptr() as *const u8;
+                        let __packet_field_field_slice =
+                            ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
+                        __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+                    }
+                }
+            }
+            None => {
+                let ty = &self.ty;
+                quote! {
+                    unsafe {
+                        let __packet_field_size = ::std::mem::size_of::<#ty>();
+                        let __packet_field_bytes = #ident as *const #ty as *const u8;
+                        let __packet_field_slice =
+                            ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
+                        __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    }
+                }
             }
         }
-        None => quote! { ::std::mem::size_of::<#ty>() },
     }
-}
 
-fn exposed_ty(field: &FlatSerializeField) -> TokenStream2 {
-    match &field.length_info {
-        None => {
-            let nominal_ty = &field.ty;
-            quote! { #nominal_ty }
-        },
-        Some(ExternalLenFieldInfo { ty, .. }) => quote! { [#ty] },
-    }
-}
-
-fn size_fn(field: &FlatSerializeField) -> TokenStream2 {
-    let ident = field.ident.as_ref().unwrap();
-    let nominal_ty = &field.ty;
-    if field.use_trait {
-        return quote! {
-            <#nominal_ty as FlattenableRef>::len(&#ident)
-        };
-    }
-    match &field.length_info {
-        Some(info) => {
-            let ty = &info.ty;
-            let count = info.counter_expr();
-            quote! {
-                (::std::mem::size_of::<#ty>() * (#count))
-            }
+    fn err_size(&self) -> TokenStream2 {
+        let ty = self.exposed_ty();
+        if self.use_trait {
+            return quote! {
+                <#ty as FlattenableRef>::min_len()
+            };
         }
-        None => {
-            quote!( ::std::mem::size_of::<#nominal_ty>() )
+        match &self.length_info {
+            Some(info @ ExternalLenFieldInfo { .. }) => {
+                let count = info.err_size_expr();
+                let ty = &info.ty;
+                quote! {
+                    (::std::mem::size_of::<#ty>()
+                        * (#count))
+                }
+            }
+            None => quote! { ::std::mem::size_of::<#ty>() },
+        }
+    }
+
+    fn exposed_ty(&self) -> TokenStream2 {
+        match &self.length_info {
+            None => {
+                let nominal_ty = &self.ty;
+                quote! { #nominal_ty }
+            },
+            Some(ExternalLenFieldInfo { ty, .. }) => quote! { [#ty] },
+        }
+    }
+
+    fn size_fn(&self) -> TokenStream2 {
+        let ident = self.ident.as_ref().unwrap();
+        let nominal_ty = &self.ty;
+        if self.use_trait {
+            return quote! {
+                <#nominal_ty as FlattenableRef>::len(&#ident)
+            };
+        }
+        match &self.length_info {
+            Some(info) => {
+                let ty = &info.ty;
+                let count = info.counter_expr();
+                quote! {
+                    (::std::mem::size_of::<#ty>() * (#count))
+                }
+            }
+            None => {
+                quote!( ::std::mem::size_of::<#nominal_ty>() )
+            }
         }
     }
 }
