@@ -146,19 +146,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
         let fields = input
             .fields
             .iter()
-            .flat_map(|f| {
-                let name = f.ident.as_ref().unwrap();
-                let attrs = f.attrs.iter();
-                if f.use_trait {
-                    let ty = &f.ty;
-                    Some(quote! { #(#attrs)* pub #name: #ty, })
-                } else {
-                    let ty = f.exposed_ty();
-                    let per_field_attrs =
-                        per_field_attrs(&f.length_info, input.per_field_attrs.iter());
-                    Some(quote! { #(#per_field_attrs)* #(#attrs)* pub #name: &'a #ty, })
-                }
-            });
+            .map(|f| f.declaration(true, input.per_field_attrs.iter()));
         let attrs = &*input.attrs;
 
         quote! {
@@ -310,19 +298,9 @@ impl FlatSerializeEnum {
     fn variants(&self) -> TokenStream2 {
         let id = &self.ident;
         let variants = self.variants.iter().map(|variant| {
-            let fields = variant.body.fields.iter().flat_map(|f| {
-                let name = f.ident.as_ref().unwrap();
-                let attrs = f.attrs.iter();
-                if f.use_trait {
-                    let ty = &f.ty;
-                    Some(quote! { #(#attrs)* #name: #ty, })
-                } else {
-                    let ty = f.exposed_ty();
-                    let per_field_attrs =
-                        per_field_attrs(&f.length_info, self.per_field_attrs.iter());
-                    Some(quote! { #(#per_field_attrs)* #(#attrs)* #name: &'a #ty, })
-                }
-            });
+            let fields = variant.body.fields.iter().map(|f|
+                f.declaration(false, self.per_field_attrs.iter())
+            );
             let ident = &variant.body.ident;
             quote! {
                 #ident {
@@ -801,21 +779,38 @@ impl FlatSerializeField {
             }
         }
     }
-}
 
-
-fn per_field_attrs<'a>(
-    field_info: &'a Option<ExternalLenFieldInfo>,
-    attrs: impl Iterator<Item = &'a PerFieldsAttr> + 'a,
-) -> impl Iterator<Item = TokenStream2> + 'a {
-    attrs.map(move |attr| match field_info {
-        None => {
-            let attr = &attr.fixed;
-            quote! { #attr }
+    fn declaration<'a, 'b: 'a>(
+        &'b self,
+        is_pub: bool,
+        pf_attrs: impl Iterator<Item = &'a PerFieldsAttr> + 'a
+    ) -> TokenStream2 {
+        let name = self.ident.as_ref().unwrap();
+            let attrs = self.attrs.iter();
+        if self.use_trait {
+            let ty = &self.ty;
+            quote! { #(#attrs)* #name: #ty, }
+        } else {
+            let ty = self.exposed_ty();
+            let per_field_attrs = self.per_field_attrs(pf_attrs);
+            let pub_marker = is_pub.then(|| quote!{ pub });
+            quote! { #(#per_field_attrs)* #(#attrs)* #pub_marker #name: &'a #ty, }
         }
-        Some(_) => match &attr.variable {
-            Some(attr) => quote! { #attr },
-            None => quote! {},
-        },
-    })
+    }
+
+    fn per_field_attrs<'a, 'b: 'a>(
+        &'b self,
+        attrs: impl Iterator<Item = &'a PerFieldsAttr> + 'a,
+    ) -> impl Iterator<Item = TokenStream2> + 'a {
+        attrs.map(move |attr| match &self.length_info {
+            None => {
+                let attr = &attr.fixed;
+                quote! { #attr }
+            }
+            Some(_) => match &attr.variable {
+                Some(attr) => quote! { #attr },
+                None => quote! {},
+            },
+        })
+    }
 }
