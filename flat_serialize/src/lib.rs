@@ -316,9 +316,9 @@ mod tests {
 
     flat_serialize! {
         enum BasicEnum {
-            k: u8,
+            k: u64,
             First: 2 {
-                data_len: usize,
+                data_len: u32,
                 data: [u8; self.data_len],
             },
             Fixed: 3 {
@@ -330,8 +330,8 @@ mod tests {
     #[test]
     fn basic_enum1() {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&2u8.to_ne_bytes());
-        bytes.extend_from_slice(&6usize.to_ne_bytes());
+        bytes.extend_from_slice(&2u64.to_ne_bytes());
+        bytes.extend_from_slice(&6u32.to_ne_bytes());
         bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
         let (data_len, data, rem) = match unsafe { BasicEnum::try_ref(&bytes).unwrap() } {
             (BasicEnum::First { data_len, data }, rem) => (data_len, data, rem),
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn basic_enum2() {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&3u8.to_ne_bytes());
+        bytes.extend_from_slice(&3u64.to_ne_bytes());
         bytes.extend_from_slice(&3u16.to_ne_bytes());
         bytes.extend_from_slice(&6u16.to_ne_bytes());
         bytes.extend_from_slice(&9u16.to_ne_bytes());
@@ -388,6 +388,88 @@ mod tests {
         BasicEnum::Fixed { array }.fill_vec(&mut output);
         assert_eq!(output, &bytes[..bytes.len() - 1]);
     }
+
+
+
+    flat_serialize! {
+        enum PaddedEnum {
+            k: u8,
+            First: 2 {
+                padding: [u8; 3],
+                data_len: u32,
+                data: [u8; self.data_len],
+            },
+            Fixed: 3 {
+                padding: u8,
+                array: [u16; 3],
+            },
+        }
+    }
+
+    #[test]
+    fn padded_enum1() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2u8.to_ne_bytes());
+        bytes.extend_from_slice(&[0xf, 0xf, 0xf]);
+        bytes.extend_from_slice(&6u32.to_ne_bytes());
+        bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
+        let (padding, data_len, data, rem) = match unsafe { PaddedEnum::try_ref(&bytes).unwrap() } {
+            (PaddedEnum::First {  padding, data_len, data }, rem) => (padding, data_len, data, rem),
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            (padding, data_len, data, rem),
+            (&[0xf, 0xf, 0xf], &6, &[1, 3, 5, 7, 9, 11][..], &[][..])
+        );
+
+        let (padding, data_len, data, rem) =
+            match unsafe { <PaddedEnum as FlattenableRef>::try_ref(&bytes).unwrap() } {
+                (PaddedEnum::First {  padding, data_len, data }, rem) => (padding, data_len, data, rem),
+                _ => unreachable!(),
+            };
+        assert_eq!(
+            (padding, data_len, data, rem),
+            (&[0xf, 0xf, 0xf], &6, &[1, 3, 5, 7, 9, 11][..], &[][..])
+        );
+
+        let mut output = vec![];
+        PaddedEnum::First { padding, data_len, data }.fill_vec(&mut output);
+        assert_eq!(output, bytes);
+    }
+
+    #[test]
+    fn padded_enum2() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&3u8.to_ne_bytes());
+        bytes.extend_from_slice(&[0]);
+        bytes.extend_from_slice(&3u16.to_ne_bytes());
+        bytes.extend_from_slice(&6u16.to_ne_bytes());
+        bytes.extend_from_slice(&9u16.to_ne_bytes());
+        bytes.extend_from_slice(&[7]);
+        let (padding, array, rem) = match unsafe { PaddedEnum::try_ref(&bytes).unwrap() } {
+            (PaddedEnum::Fixed { padding, array }, rem) => (padding, array, rem),
+            _ => unreachable!(),
+        };
+        assert_eq!((padding, array, rem), (&0, &[3, 6, 9], &[7][..]));
+
+        let (padding, array, rem) = match unsafe { PaddedEnum::try_ref(&bytes).unwrap() } {
+            (PaddedEnum::Fixed {padding, array }, rem) => (padding, array, rem),
+            _ => unreachable!(),
+        };
+        assert_eq!((padding, array, rem), (&0, &[3, 6, 9], &[7][..]));
+
+        let (padding, array, rem) = match unsafe { <PaddedEnum as FlattenableRef>::try_ref(&bytes).unwrap() }
+        {
+            (PaddedEnum::Fixed { padding, array }, rem) => (padding, array, rem),
+            _ => unreachable!(),
+        };
+        assert_eq!((padding, array, rem), (&0, &[3, 6, 9], &[7][..]));
+
+        let mut output = vec![];
+        PaddedEnum::Fixed { padding, array }.fill_vec(&mut output);
+        assert_eq!(output, &bytes[..bytes.len() - 1]);
+    }
+
 
     macro_rules! sub_macro {
         (
