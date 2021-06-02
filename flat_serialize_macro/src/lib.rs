@@ -138,7 +138,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
     let ident = input.ident.clone();
 
     let ref_def = {
-        let alignment_check = input.alignment_check(quote!(0));
+        let alignment_check = input.alignment_check(quote!(0), quote!(8));
         let try_ref = input.fn_try_ref();
         let fill_vec = input.fn_fill_vec();
         let len = input.fn_len();
@@ -204,6 +204,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 }
 
 fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
+    let alignment_check = input.alignment_check();
     let try_ref = input.fn_try_ref();
     let fill_vec = input.fn_fill_vec();
     let len = input.fn_len();
@@ -215,6 +216,8 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
         #[derive(Copy, Clone)]
         #(#attrs)*
         #body
+
+        #alignment_check
 
         impl<'a> #ident<'a> {
             #try_ref
@@ -313,6 +316,23 @@ impl FlatSerializeEnum {
             }
         }
     }
+
+    fn alignment_check(&self) -> TokenStream2 {
+        let mut size = quote! { 0 };
+        let mut min_align = quote! { 8 };
+        let tag_check = self.tag.alignment_check(&mut size, &mut min_align);
+        let variant_checks = self.variants.iter()
+            .map(|v| v.body.alignment_check(size.clone(), min_align.clone()));
+        quote! {
+            // alignment assertions
+            const _: () = {
+                use std::mem::{align_of, size_of};
+                #tag_check
+                #(#variant_checks)*
+            };
+        }
+    }
+
     fn fn_try_ref(&self) -> TokenStream2 {
         let break_label = syn::Lifetime::new("'tryref_tag", proc_macro2::Span::call_site());
         let try_wrap_tag = self.tag.try_wrap(&break_label);
@@ -432,6 +452,7 @@ impl FlatSerializeStruct {
     fn alignment_check(
         &self,
         start: TokenStream2,
+        min_align: TokenStream2,
     ) -> TokenStream2 {
         // TODO
         if self.fields.iter().any(|f| f.use_trait) {
@@ -445,41 +466,10 @@ impl FlatSerializeStruct {
         // type that causes the misalignment, however, if the type is inputted
         // via a macro, that span will be unable to reference local variables
         // we create ourselves.
-        let mut size = quote! { #start };
-        let mut min_align = quote! { 8 };
+        let mut size = start;
+        let mut min_align = min_align;
 
-        let checks = self.fields.iter().map(|f| {
-            use syn::spanned::Spanned;
-            use std::mem::replace;
-            match &f.length_info {
-                None => {
-                    let ty = &f.ty;
-                    let new_size = quote!{#size + size_of::<#ty>()};
-                    let size = replace(&mut size, new_size);
-                    quote_spanned!{f.ty.span()=>
-                        let _alignment_check= [()][(#size) % align_of::<#ty>()];
-                        let _alignment_check2 = [()][(align_of::<#ty>() > #min_align) as u8 as usize];
-                        let _padding_check = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
-                    }
-                }
-                Some(info) => {
-                    let ty = &info.ty;
-                    let new_min_align = quote!{
-                        if align_of::<#ty>() < #min_align {
-                            align_of::<#ty>()
-                        } else {
-                            #min_align
-                        }
-                    };
-                    let min_align = replace(&mut min_align, new_min_align);
-                    quote_spanned!{f.ty.span()=>
-                        let _alignment_check: () = [()][(#size) % align_of::<#ty>()];
-                        let _alignment_check2: () = [()][(align_of::<#ty>() > #min_align) as u8 as usize];
-                        let _padding_check: () = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
-                    }
-                }
-            }
-        });
+        let checks = self.fields.iter().map(|f| f.alignment_check(&mut size, &mut min_align));
 
         quote! {
             // alignment assertions
@@ -606,6 +596,39 @@ impl FlatSerializeStruct {
 }
 
 impl FlatSerializeField {
+
+    fn alignment_check(&self, size: &mut TokenStream2, min_align: &mut TokenStream2) -> TokenStream2 {
+        use syn::spanned::Spanned;
+        use std::mem::replace;
+        match &self.length_info {
+            None => {
+                let ty = &self.ty;
+                let new_size = quote!{#size + size_of::<#ty>()};
+                let size = replace(size, new_size);
+                quote_spanned!{self.ty.span()=>
+                    let _alignment_check= [()][(#size) % align_of::<#ty>()];
+                    let _alignment_check2 = [()][(align_of::<#ty>() > #min_align) as u8 as usize];
+                    let _padding_check = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
+                }
+            }
+            Some(info) => {
+                let ty = &info.ty;
+                let new_min_align = quote!{
+                    if align_of::<#ty>() < #min_align {
+                        align_of::<#ty>()
+                    } else {
+                        #min_align
+                    }
+                };
+                let min_align = replace(min_align, new_min_align);
+                quote_spanned!{self.ty.span()=>
+                    let _alignment_check: () = [()][(#size) % align_of::<#ty>()];
+                    let _alignment_check2: () = [()][(align_of::<#ty>() > #min_align) as u8 as usize];
+                    let _padding_check: () = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
+                }
+            }
+        }
+    }
 
     fn try_wrap(&self, break_label: &syn::Lifetime,) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();

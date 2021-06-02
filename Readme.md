@@ -94,9 +94,9 @@ flat_serialize!{
 /// before the enum fields.
 flat_serialize!{
     enum Enum {
-        k: u8,
+        k: u64,
         First: 2 {
-            data_len: usize,
+            data_len: u32,
             data: [u8; self.data_len],
         },
         Fixed: 3 {
