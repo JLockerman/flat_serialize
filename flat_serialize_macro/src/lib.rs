@@ -205,6 +205,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 
 fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let alignment_check = input.alignment_check();
+    let uniqueness_check = input.uniqueness_check();
     let try_ref = input.fn_try_ref();
     let fill_vec = input.fn_fill_vec();
     let len = input.fn_len();
@@ -218,6 +219,8 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
         #body
 
         #alignment_check
+
+        #uniqueness_check
 
         impl<'a> #ident<'a> {
             #try_ref
@@ -314,6 +317,25 @@ impl FlatSerializeEnum {
             pub enum #id<'a> {
                 #(#variants)*
             }
+        }
+    }
+
+    fn uniqueness_check(&self) -> TokenStream2 {
+        let variants = self.variants.iter().map(|variant| {
+            let ident = &variant.body.ident;
+            let tag_val = &variant.tag_val;
+            quote! {
+                #ident = #tag_val,
+            }
+        });
+        quote! {
+            // uniqueness check
+            const _: () = {
+                #[allow(dead_code)]
+                enum UniquenessCheck {
+                    #(#variants)*
+                }
+            };
         }
     }
 

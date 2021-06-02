@@ -345,6 +345,13 @@ const _: () = {
         let _padding_check = [()][(size_of::<[u16; 3]>() < align_of::<[u16; 3]>()) as u8 as usize];
     };
 };
+const _: () = {
+    #[allow(dead_code)]
+    enum UniquenessCheck {
+        First = 2,
+        Fixed = 3,
+    }
+};
 impl<'a> BasicEnum<'a> {
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
@@ -579,6 +586,13 @@ const _: () = {
         let _alignment_check2 = [()][(align_of::<[u16; 3]>() > 8) as u8 as usize];
         let _padding_check = [()][(size_of::<[u16; 3]>() < align_of::<[u16; 3]>()) as u8 as usize];
     };
+};
+const _: () = {
+    #[allow(dead_code)]
+    enum UniquenessCheck {
+        First = 2,
+        Fixed = 3,
+    }
 };
 impl<'a> PaddedEnum<'a> {
     #[allow(unused_assignments, unused_variables)]
