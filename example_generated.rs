@@ -218,20 +218,7 @@ impl<'a> Basic<'a> {
             + (::std::mem::size_of::<u8>() * ((*data_len) as usize / 2))
     }
 }
-impl<'a> FlattenableRef<'a> for Basic<'a> {
-    unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
-    where
-        Self: Sized + 'a,
-    {
-        Basic::try_ref(bytes)
-    }
-    fn fill_vec(&self, vec: &mut Vec<u8>) {
-        Basic::fill_vec(self, vec)
-    }
-    fn len(&self) -> usize {
-        Basic::len(self)
-    }
-}
+unsafe impl<'a> FlattenableRef<'a> for Basic<'a> {}
 #[derive(Copy, Clone)]
 pub struct Nested<'a> {
     pub prefix: &'a u64,
@@ -262,7 +249,7 @@ impl<'a> Nested<'a> {
             let __packet_macro_read_len: usize = {
                 let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    match <Basic<'a> as FlattenableRef>::try_ref(__packet_macro_bytes) {
+                    match Basic::<'a>::try_ref(__packet_macro_bytes) {
                         Ok((f, b)) => (f, b),
                         Err(WrapErr::InvalidTag(offset)) => {
                             return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
@@ -282,7 +269,7 @@ impl<'a> Nested<'a> {
             return Ok((_ref, __packet_macro_bytes));
         }
         Err(WrapErr::NotEnoughBytes(
-            0 + ::std::mem::size_of::<u64>() + <Basic<'a> as FlattenableRef>::min_len(),
+            0 + ::std::mem::size_of::<u64>() + Basic::<'a>::min_len(),
         ))
     }
     #[allow(unused_assignments, unused_variables)]
@@ -296,28 +283,15 @@ impl<'a> Nested<'a> {
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
         };
-        <Basic<'a> as FlattenableRef>::fill_vec(&basic, __packet_macro_bytes);
+        basic.fill_vec(__packet_macro_bytes);
     }
     #[allow(unused_assignments, unused_variables)]
     pub fn len(&self) -> usize {
         let &Nested { prefix, basic } = self;
-        0usize + ::std::mem::size_of::<u64>() + <Basic<'a> as FlattenableRef>::len(&basic)
+        0usize + ::std::mem::size_of::<u64>() + basic.len()
     }
 }
-impl<'a> FlattenableRef<'a> for Nested<'a> {
-    unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
-    where
-        Self: Sized + 'a,
-    {
-        Nested::try_ref(bytes)
-    }
-    fn fill_vec(&self, vec: &mut Vec<u8>) {
-        Nested::fill_vec(self, vec)
-    }
-    fn len(&self) -> usize {
-        Nested::len(self)
-    }
-}
+unsafe impl<'a> FlattenableRef<'a> for Nested<'a> {}
 #[derive(Copy, Clone)]
 pub enum BasicEnum<'a> {
     First { data_len: &'a u32, data: &'a [u8] },
@@ -531,20 +505,7 @@ impl<'a> BasicEnum<'a> {
         }
     }
 }
-impl<'a> FlattenableRef<'a> for BasicEnum<'a> {
-    unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
-    where
-        Self: Sized + 'a,
-    {
-        BasicEnum::try_ref(bytes)
-    }
-    fn fill_vec(&self, vec: &mut Vec<u8>) {
-        BasicEnum::fill_vec(self, vec)
-    }
-    fn len(&self) -> usize {
-        BasicEnum::len(self)
-    }
-}
+unsafe impl<'a> FlattenableRef<'a> for BasicEnum<'a> {}
 #[derive(Copy, Clone)]
 pub enum PaddedEnum<'a> {
     First {
@@ -835,20 +796,7 @@ impl<'a> PaddedEnum<'a> {
         }
     }
 }
-impl<'a> FlattenableRef<'a> for PaddedEnum<'a> {
-    unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
-    where
-        Self: Sized + 'a,
-    {
-        PaddedEnum::try_ref(bytes)
-    }
-    fn fill_vec(&self, vec: &mut Vec<u8>) {
-        PaddedEnum::fill_vec(self, vec)
-    }
-    fn len(&self) -> usize {
-        PaddedEnum::len(self)
-    }
-}
+unsafe impl<'a> FlattenableRef<'a> for PaddedEnum<'a> {}
 #[derive(Copy, Clone, Debug)]
 pub struct InMacro<'a> {
     pub a: &'a u32,
@@ -966,17 +914,4 @@ impl<'a> InMacro<'a> {
             + ::std::mem::size_of::<f64>()
     }
 }
-impl<'a> FlattenableRef<'a> for InMacro<'a> {
-    unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
-    where
-        Self: Sized + 'a,
-    {
-        InMacro::try_ref(bytes)
-    }
-    fn fill_vec(&self, vec: &mut Vec<u8>) {
-        InMacro::fill_vec(self, vec)
-    }
-    fn len(&self) -> usize {
-        InMacro::len(self)
-    }
-}
+unsafe impl<'a> FlattenableRef<'a> for InMacro<'a> {}

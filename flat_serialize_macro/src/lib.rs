@@ -114,9 +114,9 @@ struct FlatSerializeStruct {
 }
 struct FlatSerializeField {
     field: Field,
-    /// use the FlattenableRef trait for (de)serialization
-    use_trait: bool,
-    // TODO is this mutually exclusive with `use_trait` above? Should we make an
+    /// call try_ref(...)/fill_vec(...) for de/serialization
+    flatten: bool,
+    // TODO is this mutually exclusive with `flatten` above? Should we make an
     // enum to select between them?
     length_info: Option<ExternalLenFieldInfo>,
 }
@@ -165,18 +165,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                 #len
             }
 
-            impl<'a> FlattenableRef<'a> for #ident<'a> {
-                unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
-                where Self: Sized + 'a {
-                    #ident::try_ref(bytes)
-                }
-                fn fill_vec(&self, vec: &mut Vec<u8>) {
-                    #ident::fill_vec(self, vec)
-                }
-                fn len(&self) -> usize {
-                    #ident::len(self)
-                }
-            }
+            unsafe impl<'a> FlattenableRef<'a> for #ident<'a> {}
         }
     };
 
@@ -230,18 +219,7 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
             #len
         }
 
-        impl<'a> FlattenableRef<'a> for #ident<'a> {
-            unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>
-            where Self: Sized + 'a {
-                #ident::try_ref(bytes)
-            }
-            fn fill_vec(&self, vec: &mut Vec<u8>) {
-                #ident::fill_vec(self, vec)
-            }
-            fn len(&self) -> usize {
-                #ident::len(self)
-            }
-        }
+        unsafe impl<'a> FlattenableRef<'a> for #ident<'a> {}
     }
 }
 
@@ -477,7 +455,7 @@ impl FlatSerializeStruct {
         min_align: TokenStream2,
     ) -> TokenStream2 {
         // TODO
-        if self.fields.iter().any(|f| f.use_trait) {
+        if self.fields.iter().any(|f| f.flatten) {
             //TODO
             return quote! {};
         }
@@ -542,7 +520,7 @@ impl FlatSerializeStruct {
             .iter()
             .map(|f| {
                 let ty = f.exposed_ty();
-                if f.use_trait {
+                if f.flatten {
                     quote! { Option<#ty> }
                 } else {
                     quote! { Option<&#ty> }
@@ -656,11 +634,12 @@ impl FlatSerializeField {
         let ident = self.ident.as_ref().unwrap();
         let ty = &self.ty;
 
-        if self.use_trait {
+        if self.flatten {
+            let ty = parser::as_turbofish(ty);
             return quote! {
                 let __packet_macro_read_len: usize = {
                     let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
-                    let (__packet_macro_field, __packet_macro_rem_bytes) = match <#ty as FlattenableRef>::try_ref(__packet_macro_bytes) {
+                    let (__packet_macro_field, __packet_macro_rem_bytes) = match #ty::try_ref(__packet_macro_bytes) {
                         Ok((f, b)) => (f, b),
                         Err(WrapErr::InvalidTag(offset)) =>
                             return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
@@ -723,18 +702,17 @@ impl FlatSerializeField {
     }
 
     fn fill_vec(&self) -> TokenStream2 {
-        if self.use_trait {
-            self.fill_vec_with_trait()
+        if self.flatten {
+            self.fill_vec_with_flatten()
         } else {
             self.fill_vec_with_field()
         }
     }
 
-    fn fill_vec_with_trait(&self) -> TokenStream2 {
+    fn fill_vec_with_flatten(&self) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();
-        let ty = &self.ty;
         quote! {
-            <#ty as FlattenableRef>::fill_vec(&#ident, __packet_macro_bytes);
+            #ident.fill_vec(__packet_macro_bytes);
         }
     }
 
@@ -773,12 +751,14 @@ impl FlatSerializeField {
     }
 
     fn err_size(&self) -> TokenStream2 {
-        let ty = self.exposed_ty();
-        if self.use_trait {
+        if self.flatten {
+            let ty = parser::as_turbofish(&self.ty);
             return quote! {
-                <#ty as FlattenableRef>::min_len()
+                #ty::min_len()
             };
         }
+
+        let ty = self.exposed_ty();
         match &self.length_info {
             Some(info @ ExternalLenFieldInfo { .. }) => {
                 let count = info.err_size_expr();
@@ -804,10 +784,9 @@ impl FlatSerializeField {
 
     fn size_fn(&self) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();
-        let nominal_ty = &self.ty;
-        if self.use_trait {
+        if self.flatten {
             return quote! {
-                <#nominal_ty as FlattenableRef>::len(&#ident)
+                #ident.len()
             };
         }
         match &self.length_info {
@@ -819,6 +798,7 @@ impl FlatSerializeField {
                 }
             }
             None => {
+                let nominal_ty = &self.ty;
                 quote!( ::std::mem::size_of::<#nominal_ty>() )
             }
         }
@@ -832,7 +812,7 @@ impl FlatSerializeField {
         let name = self.ident.as_ref().unwrap();
         let attrs = self.attrs.iter();
         let pub_marker = is_pub.then(|| quote!{ pub });
-        if self.use_trait {
+        if self.flatten {
             let ty = &self.ty;
             quote! { #(#attrs)* #pub_marker #name: #ty, }
         } else {

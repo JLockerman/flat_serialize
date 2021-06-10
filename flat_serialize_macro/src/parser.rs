@@ -2,20 +2,14 @@ use std::{collections::HashSet, ops::Deref};
 
 use proc_macro2::TokenStream as TokenStream2;
 
-use syn::{
-    braced,
-    parse::{Parse, ParseStream},
-    token,
-    visit::Visit,
-    Attribute, Expr, Field, Ident, Result, Token,
-};
+use syn::{Attribute, Expr, Field, Ident, Result, Token, Type, braced, parse::{Parse, ParseStream}, spanned::Spanned, token, visit::Visit};
 
 use crate::{
     ExternalLenFieldInfo, FlatSerialize, FlatSerializeEnum, FlatSerializeField,
     FlatSerializeStruct, FlatSerializeVariant, PerFieldsAttr,
 };
 
-use quote::quote_spanned;
+use quote::{quote, quote_spanned};
 
 const LIBRARY_MARKER: &str = "flat_serialize";
 
@@ -90,7 +84,7 @@ impl Parse for FlatSerializeEnum {
             tag: FlatSerializeField {
                 field: tag,
                 // TODO can we allow these?
-                use_trait: false,
+                flatten: false,
                 length_info: None,
             },
             variants,
@@ -150,7 +144,7 @@ impl Parse for FlatSerializeField {
         }
         Ok(Self {
             field,
-            use_trait,
+            flatten: use_trait,
             length_info,
         })
     }
@@ -167,8 +161,6 @@ impl Deref for FlatSerializeField {
 
 impl Parse for PerFieldsAttr {
     fn parse(input: ParseStream) -> Result<Self> {
-        use syn::spanned::Spanned;
-
         let fixed: syn::MetaNameValue = input.parse()?;
         let mut variable: Option<syn::MetaNameValue> = None;
         if !input.is_empty() {
@@ -322,4 +314,52 @@ impl<'a, 'b, 'ast> Visit<'ast> for ValidateLenFields<'a, 'b> {
             _ => syn::visit::visit_expr(self, expr),
         }
     }
+}
+
+
+pub fn as_turbofish(ty: &Type) -> TokenStream2 {
+    let path = match &ty {
+        Type::Path(path) => path,
+        _ => return quote_spanned! {ty.span()=>
+            compile_error!("can only flatten path-based types")
+        },
+    };
+    if path.qself.is_some() {
+        return quote_spanned! {ty.span()=>
+            compile_error!("cannot use `<Foo as Bar>` in flatten")
+        }
+    }
+    let path = &path.path;
+    let leading_colon = &path.leading_colon;
+    let mut output = quote!{};
+    let mut error = None;
+    for segment in &path.segments {
+        match &segment.arguments {
+            syn::PathArguments::Parenthesized(args) => {
+                error = Some(quote_spanned! {args.span()=>
+                    compile_error!("cannot use `()` in flatten")
+                });
+            },
+            syn::PathArguments::None => {
+                if output.is_empty() {
+                    output = quote!{ #leading_colon #segment };
+                } else {
+                    output = quote!{ #output::#segment};
+                }
+            },
+            args @ syn::PathArguments::AngleBracketed(_) => {
+                let ident = &segment.ident;
+                if output.is_empty() {
+                    output = quote!{ #leading_colon #ident::#args };
+                } else {
+                    output = quote!{ #output::#ident::#args };
+                }
+            },
+        }
+    }
+    if let Some(error) = error {
+        return error
+    }
+
+    output
 }

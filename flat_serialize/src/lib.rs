@@ -6,20 +6,7 @@ pub enum WrapErr {
 
 // TODO add a Metadata argument to try_ref and type to the trait for more
 //      advanced deserialization?
-pub trait FlattenableRef<'a>: Sized + 'a {
-    unsafe fn try_ref(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr>;
-    fn fill_vec(&self, vec: &mut Vec<u8>);
-    fn len(&self) -> usize;
-    fn min_len() -> usize {
-        unsafe {
-            match Self::try_ref(&[]) {
-                Ok(..) => 0,
-                Err(WrapErr::NotEnoughBytes(b)) => b,
-                _ => unreachable!(),
-            }
-        }
-    }
-}
+pub unsafe trait FlattenableRef<'a>: Sized + 'a {}
 
 pub unsafe trait FlatSerializable: Sized {
     unsafe fn try_ref<'a>(bytes: &'a [u8]) -> Result<(&'a Self, &'a [u8]), WrapErr> {
@@ -152,28 +139,6 @@ mod tests {
             )
         );
 
-        let (
-            Basic {
-                header,
-                data_len,
-                data,
-                data2,
-                array,
-            },
-            rem,
-        ) = unsafe { <Basic as FlattenableRef>::try_ref(&bytes).unwrap() };
-        assert_eq!(
-            (header, data_len, data, data2, array, rem),
-            (
-                &33,
-                &6,
-                &[1, 3, 5, 7, 9, 11][..],
-                &[4, 4, 4][..],
-                &[202, 404, 555],
-                &[][..]
-            )
-        );
-
         let mut output = vec![];
         Basic {
             header,
@@ -272,33 +237,6 @@ mod tests {
             )
         );
 
-        let (
-            Nested {
-                prefix,
-                basic:
-                    Basic {
-                        header,
-                        data_len,
-                        data,
-                        data2,
-                        array,
-                    },
-            },
-            rem,
-        ) = unsafe { <Nested as FlattenableRef>::try_ref(&bytes).unwrap() };
-        assert_eq!(
-            (prefix, header, data_len, data, data2, array, rem),
-            (
-                &101010101,
-                &33,
-                &6,
-                &[1, 3, 5, 7, 9, 11][..],
-                &[4, 4, 4][..],
-                &[202, 404, 555],
-                &[][..]
-            )
-        );
-
         let mut output = vec![];
         Nested {
             prefix,
@@ -342,16 +280,6 @@ mod tests {
             (&6, &[1, 3, 5, 7, 9, 11][..], &[][..])
         );
 
-        let (data_len, data, rem) =
-            match unsafe { <BasicEnum as FlattenableRef>::try_ref(&bytes).unwrap() } {
-                (BasicEnum::First { data_len, data }, rem) => (data_len, data, rem),
-                _ => unreachable!(),
-            };
-        assert_eq!(
-            (data_len, data, rem),
-            (&6, &[1, 3, 5, 7, 9, 11][..], &[][..])
-        );
-
         let mut output = vec![];
         BasicEnum::First { data_len, data }.fill_vec(&mut output);
         assert_eq!(output, bytes);
@@ -372,13 +300,6 @@ mod tests {
         assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
 
         let (array, rem) = match unsafe { BasicEnum::try_ref(&bytes).unwrap() } {
-            (BasicEnum::Fixed { array }, rem) => (array, rem),
-            _ => unreachable!(),
-        };
-        assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
-
-        let (array, rem) = match unsafe { <BasicEnum as FlattenableRef>::try_ref(&bytes).unwrap() }
-        {
             (BasicEnum::Fixed { array }, rem) => (array, rem),
             _ => unreachable!(),
         };
@@ -422,16 +343,6 @@ mod tests {
             (&[0xf, 0xf, 0xf], &6, &[1, 3, 5, 7, 9, 11][..], &[][..])
         );
 
-        let (padding, data_len, data, rem) =
-            match unsafe { <PaddedEnum as FlattenableRef>::try_ref(&bytes).unwrap() } {
-                (PaddedEnum::First {  padding, data_len, data }, rem) => (padding, data_len, data, rem),
-                _ => unreachable!(),
-            };
-        assert_eq!(
-            (padding, data_len, data, rem),
-            (&[0xf, 0xf, 0xf], &6, &[1, 3, 5, 7, 9, 11][..], &[][..])
-        );
-
         let mut output = vec![];
         PaddedEnum::First { padding, data_len, data }.fill_vec(&mut output);
         assert_eq!(output, bytes);
@@ -454,13 +365,6 @@ mod tests {
 
         let (padding, array, rem) = match unsafe { PaddedEnum::try_ref(&bytes).unwrap() } {
             (PaddedEnum::Fixed {padding, array }, rem) => (padding, array, rem),
-            _ => unreachable!(),
-        };
-        assert_eq!((padding, array, rem), (&0, &[3, 6, 9], &[7][..]));
-
-        let (padding, array, rem) = match unsafe { <PaddedEnum as FlattenableRef>::try_ref(&bytes).unwrap() }
-        {
-            (PaddedEnum::Fixed { padding, array }, rem) => (padding, array, rem),
             _ => unreachable!(),
         };
         assert_eq!((padding, array, rem), (&0, &[3, 6, 9], &[7][..]));
