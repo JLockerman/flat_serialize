@@ -1,5 +1,5 @@
 
-use proc_macro::TokenStream;
+use proc_macro::{TokenStream};
 
 use proc_macro2::TokenStream as TokenStream2;
 
@@ -1175,4 +1175,54 @@ impl FlatSerializeField {
             },
         })
     }
+}
+
+
+#[proc_macro_derive(FlatSerializable)]
+pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
+    let input: syn::DeriveInput = syn::parse(input).unwrap();
+    let name = &input.ident;
+
+    let s = match &input.data {
+        syn::Data::Enum(e) => return quote_spanned! {e.enum_token.span()=>
+            compile_error!("FlatSerializable not allowed on enums")
+        }.into(),
+        syn::Data::Union(u) => return quote_spanned! {u.union_token.span()=>
+            compile_error!("FlatSerializable not allowed on unions")
+        }.into(),
+        syn::Data::Struct(s) => s,
+
+    };
+
+    let alignment_checks = s.fields.iter().map(|f| {
+        let ty = &f.ty;
+        quote_spanned!{ty.span()=>
+            let _alignment = [()][size % align_of::<#ty>()];
+            let _internal_padding = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
+            size += size_of::<#ty>();
+        }
+    });
+    let trait_checks = s.fields.iter().map(|f| {
+        let ty = &f.ty;
+        return quote_spanned!{ty.span()=>
+            const _: () = {
+                fn trait_check<T: FlatSerializable>() {}
+                let _ = trait_check::<#ty>;
+            };
+        }
+    });
+
+    let out = quote! {
+        const _:() = {
+            use std::mem::{size_of, align_of};
+            let mut size = 0;
+            #(#alignment_checks)*
+            let _trailing_padding = [()][(size_of::<#name>() != size) as u8 as usize];
+        };
+        const _:() = {
+            #(#trait_checks)*
+        };
+        unsafe impl FlatSerializable for #name {}
+    };
+    out.into()
 }

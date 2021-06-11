@@ -8,9 +8,9 @@ pub enum WrapErr {
 //      advanced deserialization?
 pub unsafe trait FlattenableRef<'a>: Sized + 'a {}
 
-/// For a type to be FlatSerializable it must contain no pointers, have no
-/// interior padding, and must have a size >= alignment. It is unlikely that
-/// you want to implement this yourself.
+/// For a type to be `FlatSerializable` it must contain no pointers, have no
+/// interior padding, must have a `size >= alignmen` and must have
+/// `size % align = 0`. Use `#[derive(FlatSerializable)]` to implement this.
 pub unsafe trait FlatSerializable: Sized {}
 
 #[macro_export]
@@ -32,7 +32,7 @@ unsafe impl<T: FlatSerializable, const N: usize> FlatSerializable for [T; N] {}
 mod tests {
     use crate::*;
 
-    use flat_serialize_macro::flat_serialize;
+    use flat_serialize_macro::{flat_serialize, FlatSerializable};
 
     flat_serialize! {
         #[derive(Debug)]
@@ -748,4 +748,17 @@ mod tests {
             max: Some(1),
         );
     }
+
+    #[derive(FlatSerializable)]
+    #[allow(dead_code)]
+    struct Foo {
+        a: i32,
+        b: i32,
+    }
+
+    const _:() = {
+        fn check_flat_serializable_impl<T: FlatSerializable>() {}
+        let _ = check_flat_serializable_impl::<Foo>;
+        let _ = check_flat_serializable_impl::<[Foo; 2]>;
+    };
 }
