@@ -406,29 +406,30 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_size_align() {
-        macro_rules! check_size_align {
-            (struct {
-                $( $(#[$attrs: meta])*  $field:ident : $typ: tt $(<$life:lifetime>)?),*
-                $(,)?
-            }
-                len: $min_len: expr,
-                align: $required_alignment: expr,
-                max: $max_provided_alignment: expr $(,)?
-            ) => {
-                {
-                    flat_serialize!{
-                        struct SizeAlignTest {
-                            $($(#[$attrs])* $field: $typ $(<$life>)?),*
-                        }
-                    };
-                    assert_eq!(SizeAlignTest::min_len(), $min_len, "length");
-                    assert_eq!(SizeAlignTest::required_alignment(), $required_alignment, "required");
-                    assert_eq!(SizeAlignTest::max_provided_alignment(), $max_provided_alignment, "max provided");
-                }
+    macro_rules! check_size_align {
+        (struct {
+            $( $(#[$attrs: meta])*  $field:ident : $typ: tt $(<$life:lifetime>)?),*
+            $(,)?
+        }
+            len: $min_len: expr,
+            align: $required_alignment: expr,
+            max: $max_provided_alignment: expr $(,)?
+        ) => {
+            {
+                flat_serialize!{
+                    struct SizeAlignTest {
+                        $($(#[$attrs])* $field: $typ $(<$life>)?),*
+                    }
+                };
+                assert_eq!(SizeAlignTest::min_len(), $min_len, "length");
+                assert_eq!(SizeAlignTest::required_alignment(), $required_alignment, "required");
+                assert_eq!(SizeAlignTest::max_provided_alignment(), $max_provided_alignment, "max provided");
             }
         }
+    }
+
+    #[test]
+    fn test_size_align_struct() {
         check_size_align!(
             struct {
                 f: u8,
@@ -636,6 +637,177 @@ mod tests {
             len: 4 + (4),
             align: 4,
             max: Some(2),
+        );
+    }
+
+    #[test]
+    fn test_size_align_enum() {
+
+        flat_serialize!{
+            enum EnumA {
+                tag: u32,
+                A: 1 {
+                    a: u32,
+                },
+                B: 2 {
+                    a: u16,
+                },
+            }
+        }
+
+        check_size_align!(
+            struct {
+                #[flat_serialize::flatten]
+                a: EnumA<'a>,
+            }
+            len: (4 + 2),
+            align: 4,
+            max: Some(2),
+        );
+
+        check_size_align!(
+            struct {
+                #[flat_serialize::flatten]
+                a: EnumA<'a>,
+                b: u16,
+            }
+            len: (4 + 2) + 2,
+            align: 4,
+            max: Some(2),
+        );
+
+        check_size_align!(
+            struct {
+                b: u64,
+                #[flat_serialize::flatten]
+                a: EnumA<'a>,
+            }
+            len: 8 + (4 + 2),
+            align: 8,
+            max: Some(2),
+        );
+
+        flat_serialize!{
+            enum EnumB {
+                tag: u32,
+                A: 1 {
+                    a: [u8; 5],
+                },
+                B: 2 {
+                    a: u16,
+                },
+            }
+        }
+
+        check_size_align!(
+            struct {
+                #[flat_serialize::flatten]
+                a: EnumB<'a>,
+            }
+            len: (4 + 2),
+            align: 4,
+            max: Some(1),
+        );
+
+        check_size_align!(
+            struct {
+                b: u64,
+                #[flat_serialize::flatten]
+                a: EnumB<'a>,
+            }
+            len: 8 + (4 + 2),
+            align: 8,
+            max: Some(1),
+        );
+
+        flat_serialize!{
+            enum EnumC {
+                tag: u64,
+                A: 1 {
+                    a: u64,
+                },
+                B: 2 {
+                    a: u16,
+                    b: [u16; self.a],
+                },
+            }
+        }
+
+        check_size_align!(
+            struct {
+                #[flat_serialize::flatten]
+                a: EnumC<'a>,
+            }
+            len: (8 + 2),
+            align: 8,
+            max: Some(2),
+        );
+
+        check_size_align!(
+            struct {
+                #[flat_serialize::flatten]
+                a: EnumC<'a>,
+                b: u16,
+            }
+            len: (8 + 2) + 2,
+            align: 8,
+            max: Some(2),
+        );
+
+        check_size_align!(
+            struct {
+                b: u64,
+                #[flat_serialize::flatten]
+                a: EnumC<'a>,
+            }
+            len: 8 + (8 + 2),
+            align: 8,
+            max: Some(2),
+        );
+
+        flat_serialize!{
+            enum EnumD {
+                tag: u32,
+                A: 1 {
+                    a: u16,
+                },
+                B: 2 {
+                    a: u32,
+                    b: [u8; self.a],
+                },
+            }
+        }
+
+        check_size_align!(
+            struct {
+                #[flat_serialize::flatten]
+                a: EnumD<'a>,
+            }
+            len: (4 + 2),
+            align: 4,
+            max: Some(1),
+        );
+
+        check_size_align!(
+            struct {
+                #[flat_serialize::flatten]
+                a: EnumD<'a>,
+                b: u8,
+            }
+            len: (4 + 2) + 1,
+            align: 4,
+            max: Some(1),
+        );
+
+        check_size_align!(
+            struct {
+                b: u64,
+                #[flat_serialize::flatten]
+                a: EnumD<'a>,
+            }
+            len: 8 + (4 + 2),
+            align: 8,
+            max: Some(1),
         );
     }
 }

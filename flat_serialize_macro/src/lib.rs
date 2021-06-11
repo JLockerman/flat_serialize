@@ -199,6 +199,9 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let alignment_check = input.alignment_check();
     let uniqueness_check = input.uniqueness_check();
+    let required_alignment = input.fn_required_alignment();
+    let max_provided_alignment = input.fn_max_provided_alignment();
+    let min_len = input.fn_min_len();
     let try_ref = input.fn_try_ref();
     let fill_vec = input.fn_fill_vec();
     let len = input.fn_len();
@@ -216,6 +219,12 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
         #uniqueness_check
 
         impl<'a> #ident<'a> {
+            #required_alignment
+
+            #max_provided_alignment
+
+            #min_len
+
             #try_ref
 
             #fill_vec
@@ -334,6 +343,143 @@ impl FlatSerializeEnum {
                 #tag_check
                 #(#variant_checks)*
             };
+        }
+    }
+
+    fn fn_required_alignment(&self) -> TokenStream2 {
+        let tag_alignment = self.tag.required_alignment();
+        let alignments = self.variants.iter().map(|v| {
+            let alignments = v.body.fields.iter().map(|f| f.required_alignment());
+            quote!{
+                let mut required_alignment = #tag_alignment;
+                #(
+                    let alignment = #alignments;
+                    if alignment > required_alignment {
+                        required_alignment = alignment;
+                    }
+                )*
+                required_alignment
+            }
+        });
+
+        quote! {
+            pub const fn required_alignment() -> usize {
+                use std::mem::align_of;
+                let mut required_alignment: usize = #tag_alignment;
+                #(
+                    let alignment: usize = {
+                        #alignments
+                    };
+                    if alignment > required_alignment {
+                        required_alignment = alignment;
+                    }
+                )*
+                required_alignment
+            }
+        }
+    }
+
+    fn fn_max_provided_alignment(&self) -> TokenStream2 {
+        let min_align = match self.tag.max_provided_alignment() {
+            Some(align) => align,
+            None => quote!(Some(8)),
+        };
+
+        let min_size = self.tag.min_len();
+
+        let alignments = self.variants.iter().map(|v| {
+            let alignments = v.body.fields.iter().flat_map(|f| f.max_provided_alignment());
+            let sizes = v.body.fields.iter().map(|f| f.min_len());
+            quote!{
+                let mut min_align: Option<usize> = #min_align;
+                #(
+                    let alignment = {
+                        #alignments
+                    };
+                    match (alignment, min_align) {
+                        (None, _) => (),
+                        (Some(align), None) => min_align = Some(align),
+                        (Some(align), Some(min)) if align < min =>
+                            min_align = Some(align),
+                        _ => (),
+                    }
+                )*
+                let variant_size: usize = #min_size #(+ #sizes)*;
+                let effective_alignment = match min_align {
+                    Some(align) => align,
+                    None => 8,
+                };
+
+                if variant_size % 8 == 0 && effective_alignment >= 8 {
+                    8
+                } else if variant_size % 4 == 0 && effective_alignment >= 4 {
+                    4
+                } else if variant_size % 2 == 0 && effective_alignment >= 2 {
+                    2
+                } else {
+                    1
+                }
+            }
+        });
+        quote! {
+            pub const fn max_provided_alignment() -> Option<usize> {
+                use std::mem::{align_of, size_of};
+                let mut min_align: usize = match #min_align {
+                    None => 8,
+                    Some(align) => align,
+                };
+                #(
+                    let variant_alignment: usize = {
+                        #alignments
+                    };
+                    if variant_alignment < min_align {
+                        min_align = variant_alignment
+                    }
+                )*
+                let min_size = Self::min_len();
+                if min_size % 8 == 0 && min_align >= 8 {
+                    return Some(8)
+                }
+                if min_size % 4 == 0 && min_align >= 4 {
+                    return Some(4)
+                }
+                if min_size % 2 == 0 && min_align >= 2 {
+                    return Some(2)
+                }
+                return Some(1)
+            }
+        }
+    }
+
+    fn fn_min_len(&self) -> TokenStream2 {
+        let tag_size = self.tag.min_len();
+        let sizes = self.variants.iter().map(|v| {
+            let sizes = v.body.fields.iter().map(|f| f.min_len());
+            quote! {
+                let mut size: usize = #tag_size;
+                #(size += #sizes;)*
+                size
+            }
+        });
+        quote! {
+            pub const fn min_len() -> usize {
+                use std::mem::size_of;
+                let mut size: Option<usize> = None;
+                #(
+                    let variant_size = {
+                        #sizes
+                    };
+                    size = match size {
+                        None => Some(variant_size),
+                        Some(size) if size > variant_size => Some(variant_size),
+                        Some(size) => Some(size),
+                    };
+                )*
+                if let Some(size) = size {
+                    return size
+                }
+                #tag_size
+            }
         }
     }
 
@@ -500,7 +646,6 @@ impl FlatSerializeStruct {
         quote! {
             pub const fn max_provided_alignment() -> Option<usize> {
                 use std::mem::align_of;
-                let mut min_size = Self::min_len();
                 let mut min_align: Option<usize> = None;
                 #(
                     match (#alignments, min_align) {
@@ -515,6 +660,7 @@ impl FlatSerializeStruct {
                     None => return None,
                     Some(min_align) => min_align,
                 };
+                let min_size = Self::min_len();
                 if min_size % 8 == 0 && min_align >= 8 {
                     return Some(8)
                 }
