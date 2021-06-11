@@ -24,7 +24,7 @@ macro_rules! impl_flat_serializable {
 
 impl_flat_serializable!(bool);
 impl_flat_serializable!(i8 u8 i16 u16 i32 u32 i64 u64 i128 u128);
-impl_flat_serializable!(f32 f64);
+impl_flat_serializable!(f32 f64 ordered_float::OrderedFloat<f32> ordered_float::OrderedFloat<f64>);
 
 unsafe impl<T: FlatSerializable, const N: usize> FlatSerializable for [T; N] {}
 
