@@ -134,6 +134,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 
     let ref_def = {
         let alignment_check = input.alignment_check(quote!(0), quote!(8));
+        let trait_check = input.fn_trait_check();
         let required_alignment = input.fn_required_alignment();
         let max_provided_alignment = input.fn_max_provided_alignment();
         let min_len = input.fn_min_len();
@@ -154,6 +155,8 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
             }
 
             #alignment_check
+
+            #trait_check
 
             impl<'a> #ident<'a> {
                 #required_alignment
@@ -199,6 +202,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let alignment_check = input.alignment_check();
     let uniqueness_check = input.uniqueness_check();
+    let trait_check = input.fn_trait_check();
     let required_alignment = input.fn_required_alignment();
     let max_provided_alignment = input.fn_max_provided_alignment();
     let min_len = input.fn_min_len();
@@ -217,6 +221,8 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
         #alignment_check
 
         #uniqueness_check
+
+        #trait_check
 
         impl<'a> #ident<'a> {
             #required_alignment
@@ -342,6 +348,21 @@ impl FlatSerializeEnum {
                 use std::mem::{align_of, size_of};
                 #tag_check
                 #(#variant_checks)*
+            };
+        }
+    }
+
+    fn fn_trait_check(&self) -> TokenStream2 {
+        let tag_check = self.tag.trait_check();
+        let checks = self.variants.iter().map(|v| v.body.fn_trait_check());
+        quote! {
+            const _: () = {
+                #tag_check
+                #(
+                    const _: () = {
+                        #checks
+                    };
+                )*
             };
         }
     }
@@ -624,6 +645,15 @@ impl FlatSerializeStruct {
         }
     }
 
+    fn fn_trait_check(&self) -> TokenStream2 {
+        let checks = self.fields.iter().map(|f| f.trait_check());
+        quote! {
+            const _: () = {
+                #(#checks)*
+            };
+        }
+    }
+
     fn fn_required_alignment(&self) -> TokenStream2 {
         let alignments = self.fields.iter().map(|f| f.required_alignment());
         quote! {
@@ -860,19 +890,46 @@ impl FlatSerializeField {
         }
     }
 
+    fn trait_check(&self) -> TokenStream2 {
+        if self.flatten {
+            let ty = parser::as_turbofish(&self.ty);
+            let name = self.ident.as_ref().unwrap();
+            // based on static_assertions
+            return quote_spanned!{self.ty.span()=>
+                fn #name<'a, T: FlattenableRef<'a>>() {}
+                let _ = #name::<#ty<'static>>;
+            }
+        }
+        let ty = match &self.length_info {
+            None => &self.ty,
+            Some(info) => &info.ty,
+        };
+        let name = self.ident.as_ref().unwrap();
+        return quote_spanned!{ty.span()=>
+            fn #name<T: FlatSerializable>() {}
+            let _ = #name::<#ty>;
+        }
+    }
+
     fn required_alignment(&self) -> TokenStream2 {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
-            return quote!{ #ty::required_alignment() }
+            return quote_spanned!{self.ty.span()=>
+                #ty::required_alignment()
+            }
         }
         match &self.length_info {
             None => {
                 let ty = &self.ty;
-                quote!{ align_of::<#ty>() }
+                quote_spanned!{self.ty.span()=>
+                    align_of::<#ty>()
+                }
             }
             Some(info) => {
                 let ty = &info.ty;
-                quote!{ align_of::<#ty>() }
+                quote_spanned!{self.ty.span()=>
+                    align_of::<#ty>()
+                }
             }
         }
     }
@@ -880,11 +937,15 @@ impl FlatSerializeField {
     fn max_provided_alignment(&self) -> Option<TokenStream2> {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
-            return Some(quote!{ #ty::max_provided_alignment() })
+            return Some(quote_spanned!{self.ty.span()=>
+                #ty::max_provided_alignment()
+            })
         }
         self.length_info.as_ref().map(|info| {
             let ty = &info.ty;
-            quote!{ Some(align_of::<#ty>()) }
+            quote_spanned!{self.ty.span()=>
+                Some(align_of::<#ty>())
+            }
         })
     }
 
@@ -892,10 +953,14 @@ impl FlatSerializeField {
         let ty = &self.ty;
         if self.flatten {
             let ty = parser::as_turbofish(ty);
-            return quote! { #ty::min_len() }
+            return quote_spanned!{self.ty.span()=>
+                #ty::min_len()
+            }
         }
         match &self.length_info {
-            None => quote!{size_of::<#ty>()},
+            None => quote_spanned!{self.ty.span()=>
+                size_of::<#ty>()
+            },
             Some(..) =>
                 quote_spanned!{ty.span()=>
                     0
@@ -909,7 +974,7 @@ impl FlatSerializeField {
 
         if self.flatten {
             let ty = parser::as_turbofish(ty);
-            return quote! {
+            return quote!{
                 let __packet_macro_read_len: usize = {
                     let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
                     let (__packet_macro_field, __packet_macro_rem_bytes) = match #ty::try_ref(__packet_macro_bytes) {
@@ -1058,7 +1123,7 @@ impl FlatSerializeField {
     fn size_fn(&self) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();
         if self.flatten {
-            return quote! {
+            return quote_spanned!{self.span()=>
                 #ident.len()
             };
         }

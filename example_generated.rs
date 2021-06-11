@@ -31,6 +31,18 @@ const _: () = {
         }) as u8 as usize];
     let _padding_check: () = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
 };
+const _: () = {
+    fn header<T: FlatSerializable>() {}
+    let _ = header::<u64>;
+    fn data_len<T: FlatSerializable>() {}
+    let _ = data_len::<u32>;
+    fn array<T: FlatSerializable>() {}
+    let _ = array::<[u16; 3]>;
+    fn data<T: FlatSerializable>() {}
+    let _ = data::<u8>;
+    fn data2<T: FlatSerializable>() {}
+    let _ = data2::<u8>;
+};
 impl<'a> Basic<'a> {
     pub const fn required_alignment() -> usize {
         use std::mem::align_of;
@@ -298,6 +310,12 @@ const _: () = {
     let _alignment_check: () = [()][(0 + size_of::<u64>()) % Basic::required_alignment()];
     let _alignment_check2: () = [()][(Basic::required_alignment() > 8) as u8 as usize];
 };
+const _: () = {
+    fn prefix<T: FlatSerializable>() {}
+    let _ = prefix::<u64>;
+    fn basic<'a, T: FlattenableRef<'a>>() {}
+    let _ = basic::<Basic<'static>>;
+};
 impl<'a> Nested<'a> {
     pub const fn required_alignment() -> usize {
         use std::mem::align_of;
@@ -444,6 +462,24 @@ const _: () = {
         First = 2,
         Fixed = 3,
     }
+};
+const _: () = {
+    fn k<T: FlatSerializable>() {}
+    let _ = k::<u64>;
+    const _: () = {
+        const _: () = {
+            fn data_len<T: FlatSerializable>() {}
+            let _ = data_len::<u32>;
+            fn data<T: FlatSerializable>() {}
+            let _ = data::<u8>;
+        };
+    };
+    const _: () = {
+        const _: () = {
+            fn array<T: FlatSerializable>() {}
+            let _ = array::<[u16; 3]>;
+        };
+    };
 };
 impl<'a> BasicEnum<'a> {
     pub const fn required_alignment() -> usize {
@@ -798,6 +834,28 @@ const _: () = {
         First = 2,
         Fixed = 3,
     }
+};
+const _: () = {
+    fn k<T: FlatSerializable>() {}
+    let _ = k::<u8>;
+    const _: () = {
+        const _: () = {
+            fn padding<T: FlatSerializable>() {}
+            let _ = padding::<[u8; 3]>;
+            fn data_len<T: FlatSerializable>() {}
+            let _ = data_len::<u32>;
+            fn data<T: FlatSerializable>() {}
+            let _ = data::<u8>;
+        };
+    };
+    const _: () = {
+        const _: () = {
+            fn padding<T: FlatSerializable>() {}
+            let _ = padding::<u8>;
+            fn array<T: FlatSerializable>() {}
+            let _ = array::<[u16; 3]>;
+        };
+    };
 };
 impl<'a> PaddedEnum<'a> {
     pub const fn required_alignment() -> usize {
@@ -1193,6 +1251,14 @@ const _: () = {
     let _alignment_check = [()][(0 + size_of::<u32>() + size_of::<[u8; 4]>()) % align_of::<f64>()];
     let _alignment_check2 = [()][(align_of::<f64>() > 8) as u8 as usize];
     let _padding_check = [()][(size_of::<f64>() < align_of::<f64>()) as u8 as usize];
+};
+const _: () = {
+    fn a<T: FlatSerializable>() {}
+    let _ = a::<u32>;
+    fn padding<T: FlatSerializable>() {}
+    let _ = padding::<[u8; 4]>;
+    fn b<T: FlatSerializable>() {}
+    let _ = b::<f64>;
 };
 impl<'a> InMacro<'a> {
     pub const fn required_alignment() -> usize {
