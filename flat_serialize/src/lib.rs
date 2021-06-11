@@ -11,76 +11,13 @@ pub unsafe trait FlattenableRef<'a>: Sized + 'a {}
 /// For a type to be FlatSerializable it must contain no pointers, have no
 /// interior padding, and must have a size >= alignment. It is unlikely that
 /// you want to implement this yourself.
-pub unsafe trait FlatSerializable: Sized {
-    unsafe fn try_ref<'a>(bytes: &'a [u8]) -> Result<(&'a Self, &'a [u8]), WrapErr> {
-        let size = ::std::mem::size_of::<Self>();
-        if bytes.len() < size {
-            return Err(WrapErr::NotEnoughBytes(size));
-        }
-        let (field, rem_bytes) = bytes.split_at(size);
-        let field: &Self = ::std::mem::transmute(field.as_ptr());
-        Ok((field, rem_bytes))
-    }
-    unsafe fn try_slice<'a>(
-        bytes: &'a [u8],
-        count: usize,
-    ) -> Result<(&'a [Self], &'a [u8]), WrapErr> {
-        let size = ::std::mem::size_of::<Self>() * count;
-        if bytes.len() < size {
-            return Err(WrapErr::NotEnoughBytes(size));
-        }
-        let (field_bytes, rem_bytes) = bytes.split_at(size);
-        let field_ptr = field_bytes.as_ptr();
-        let field = ::std::slice::from_raw_parts(field_ptr as *const Self, count);
-        debug_assert_eq!(
-            field_ptr.offset(size as isize) as usize,
-            field.as_ptr().offset(count as isize) as usize
-        );
-        Ok((field, rem_bytes))
-    }
-    fn fill_vec(&self, vec: &mut Vec<u8>) {
-        unsafe {
-            let size = ::std::mem::size_of::<Self>();
-            let bytes = self as *const Self as *const u8;
-            let slice = ::std::slice::from_raw_parts(bytes, size);
-            vec.extend_from_slice(slice)
-        }
-    }
-    fn min_len() -> usize {
-        ::std::mem::size_of::<Self>()
-    }
-}
+pub unsafe trait FlatSerializable: Sized {}
 
 #[macro_export]
 macro_rules! impl_flat_serializable {
     ($($typ:ty)+) => {
         $(
-            unsafe impl FlatSerializable for $typ {
-                unsafe fn try_ref<'a>(bytes: &'a [u8])
-                -> Result<(&'a Self, &'a [u8]), WrapErr> {
-                    let size = ::std::mem::size_of::<Self>();
-                    if bytes.len() < size {
-                        return Err(WrapErr::NotEnoughBytes(size))
-                    }
-                    let (field, rem_bytes) =
-                        bytes.split_at(size);
-                    let field: &Self =
-                        ::std::mem::transmute(field.as_ptr());
-                    Ok((field, rem_bytes))
-                }
-                fn fill_vec(&self, vec: &mut Vec<u8>) {
-                    unsafe {
-                        let size = ::std::mem::size_of::<Self>();
-                        let bytes = self as *const Self as *const u8;
-                        let slice =
-                            ::std::slice::from_raw_parts(bytes, size);
-                        vec.extend_from_slice(slice)
-                    }
-                }
-                fn min_len() -> usize {
-                    ::std::mem::size_of::<Self>()
-                }
-            }
+            unsafe impl FlatSerializable for $typ {}
         )+
     };
 }
@@ -89,32 +26,7 @@ impl_flat_serializable!(bool);
 impl_flat_serializable!(i8 u8 i16 u16 i32 u32 i64 u64 i128 u128);
 impl_flat_serializable!(f32 f64);
 
-unsafe impl<T: FlatSerializable, const N: usize> FlatSerializable for [T; N] {
-    unsafe fn try_ref<'a>(bytes: &'a [u8])
-    -> Result<(&'a Self, &'a [u8]), WrapErr> {
-        let size = ::std::mem::size_of::<Self>();
-        if bytes.len() < size {
-            return Err(WrapErr::NotEnoughBytes(size))
-        }
-        let (field, rem_bytes) =
-            bytes.split_at(size);
-        let field: &Self =
-            ::std::mem::transmute(field.as_ptr());
-        Ok((field, rem_bytes))
-    }
-    fn fill_vec(&self, vec: &mut Vec<u8>) {
-        unsafe {
-            let size = ::std::mem::size_of::<Self>();
-            let bytes = self as *const Self as *const u8;
-            let slice =
-                ::std::slice::from_raw_parts(bytes, size);
-            vec.extend_from_slice(slice)
-        }
-    }
-    fn min_len() -> usize {
-        ::std::mem::size_of::<Self>()
-    }
-}
+unsafe impl<T: FlatSerializable, const N: usize> FlatSerializable for [T; N] {}
 
 #[cfg(test)]
 mod tests {
