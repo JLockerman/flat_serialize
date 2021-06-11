@@ -5,12 +5,7 @@ use proc_macro2::TokenStream as TokenStream2;
 
 use quote::{quote, quote_spanned};
 
-use syn::{
-    parse_macro_input,
-    punctuated::Punctuated,
-    visit_mut::VisitMut,
-    Attribute, Expr, Field, Ident, Token,
-};
+use syn::{Attribute, Expr, Field, Ident, Token, parse_macro_input, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut};
 
 mod parser;
 
@@ -139,6 +134,9 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 
     let ref_def = {
         let alignment_check = input.alignment_check(quote!(0), quote!(8));
+        let required_alignment = input.fn_required_alignment();
+        let max_provided_alignment = input.fn_max_provided_alignment();
+        let min_len = input.fn_min_len();
         let try_ref = input.fn_try_ref();
         let fill_vec = input.fn_fill_vec();
         let len = input.fn_len();
@@ -158,6 +156,12 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
             #alignment_check
 
             impl<'a> #ident<'a> {
+                #required_alignment
+
+                #max_provided_alignment
+
+                #min_len
+
                 #try_ref
 
                 #fill_vec
@@ -480,6 +484,62 @@ impl FlatSerializeStruct {
         }
     }
 
+    fn fn_required_alignment(&self) -> TokenStream2 {
+        let alignments = self.fields.iter().map(|f| f.required_alignment());
+        quote! {
+            pub const fn required_alignment() -> usize {
+                use std::mem::align_of;
+                let mut required_alignment = 1;
+                #(
+                    let alignment = #alignments;
+                    if alignment > required_alignment {
+                        required_alignment = alignment;
+                    }
+                )*
+                required_alignment
+            }
+        }
+    }
+
+    fn fn_max_provided_alignment(&self) -> TokenStream2 {
+        let alignments = self.fields.iter().flat_map(|f| f.max_provided_alignment());
+        quote! {
+            pub const fn max_provided_alignment() -> usize {
+                use std::mem::align_of;
+                let mut min_size = Self::min_len();
+                let mut min_align = 8;
+                #(
+                    let alignment = #alignments;
+                    if alignment < min_align {
+                        min_align = alignment;
+                    }
+                )*
+                if min_size % 8 == 0 && min_align >= 8 {
+                    return 8
+                }
+                if min_size % 4 == 0 && min_align >= 4 {
+                    return 4
+                }
+                if min_size % 2 == 0 && min_align >= 2 {
+                    return 2
+                }
+                return 1
+            }
+        }
+    }
+
+    fn fn_min_len(&self) -> TokenStream2 {
+        let sizes = self.fields.iter().map(|f| f.min_len());
+        quote! {
+            pub const fn min_len() -> usize {
+                use std::mem::size_of;
+                let mut size = 0;
+                #(size += #sizes;)*
+                size
+            }
+        }
+    }
+
     fn fn_try_ref(
         &self,
     ) -> TokenStream2 {
@@ -598,8 +658,10 @@ impl FlatSerializeStruct {
 impl FlatSerializeField {
 
     fn alignment_check(&self, size: &mut TokenStream2, min_align: &mut TokenStream2) -> TokenStream2 {
-        use syn::spanned::Spanned;
         use std::mem::replace;
+        if self.flatten {
+            todo!("alignment_check of flatten types")
+        }
         match &self.length_info {
             None => {
                 let ty = &self.ty;
@@ -627,6 +689,49 @@ impl FlatSerializeField {
                     let _padding_check: () = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
                 }
             }
+        }
+    }
+
+    fn required_alignment(&self) -> TokenStream2 {
+        if self.flatten {
+            let ty = parser::as_turbofish(&self.ty);
+            return quote!{ #ty::required_alignment() }
+        }
+        match &self.length_info {
+            None => {
+                let ty = &self.ty;
+                quote!{ align_of::<#ty>() }
+            }
+            Some(info) => {
+                let ty = &info.ty;
+                quote!{ align_of::<#ty>() }
+            }
+        }
+    }
+
+    fn max_provided_alignment(&self) -> Option<TokenStream2> {
+        if self.flatten {
+            let ty = parser::as_turbofish(&self.ty);
+            return Some(quote!{ #ty::max_provided_alignment() })
+        }
+        self.length_info.as_ref().map(|info| {
+            let ty = &info.ty;
+            quote!{ align_of::<#ty>() }
+        })
+    }
+
+    fn min_len(&self) -> TokenStream2 {
+        let ty = &self.ty;
+        if self.flatten {
+            let ty = parser::as_turbofish(ty);
+            return quote! { #ty::min_len() }
+        }
+        match &self.length_info {
+            None => quote!{size_of::<#ty>()},
+            Some(..) =>
+                quote_spanned!{ty.span()=>
+                    0
+                },
         }
     }
 

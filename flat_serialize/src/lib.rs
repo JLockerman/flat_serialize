@@ -161,6 +161,10 @@ mod tests {
             }
         );
         assert_eq!(debug, "Basic { header: 33, data_len: 6, array: [202, 404, 555], data: [1, 3, 5, 7, 9, 11], data2: [4, 4, 4] }");
+
+        assert_eq!(Basic::min_len(), 18);
+        assert_eq!(Basic::required_alignment(), 8);
+        assert_eq!(Basic::max_provided_alignment(), 1);
     }
 
     #[test]
@@ -400,5 +404,224 @@ mod tests {
             padding: [u8; 4], // with this commented out, the error should be on b
             b: f64,
         }
+    }
+
+    #[test]
+    fn test_size_align() {
+        macro_rules! check_size_align {
+            (struct {
+                $( $(#[$attrs: meta])*  $field:ident : $typ: tt $(<$life:lifetime>)?),*
+                $(,)?
+            }
+                len: $min_len: expr,
+                align: $required_alignment: expr,
+                max: $max_provided_alignment: expr $(,)?
+            ) => {
+                {
+                    flat_serialize!{
+                        struct SizeAlignTest {
+                            $($(#[$attrs])* $field: $typ $(<$life>)?),*
+                        }
+                    };
+                    assert_eq!(SizeAlignTest::min_len(), $min_len, "length");
+                    assert_eq!(SizeAlignTest::required_alignment(), $required_alignment, "required");
+                    assert_eq!(SizeAlignTest::max_provided_alignment(), $max_provided_alignment, "max provided");
+                }
+            }
+        }
+        check_size_align!(
+            struct {
+                f: u8,
+            }
+            len: 1,
+            align: 1,
+            max: 1,
+        );
+
+
+        check_size_align!(
+            struct {
+                f: u16,
+            }
+            len: 2,
+            align: 2,
+            max: 2,
+        );
+
+        check_size_align!(
+            struct {
+                f: u32,
+            }
+            len: 4,
+            align: 4,
+            max: 4,
+        );
+
+        check_size_align!(
+            struct {
+                f: u64,
+            }
+            len: 8,
+            align: 8,
+            max: 8,
+        );
+
+        check_size_align!(
+            struct {
+                a: u64,
+                b: u32,
+                c: u16,
+            }
+            len: 8 + 4 + 2,
+            align: 8,
+            max: 2,
+        );
+
+        check_size_align!(
+            struct {
+                a: u32,
+                b: u32,
+                c: u32,
+            }
+            len: 4 + 4 + 4,
+            align: 4,
+            max: 4,
+        );
+
+        check_size_align!(
+            struct {
+                a: [u32; 3],
+            }
+            len: 4 * 3,
+            align: 4,
+            max: 4,
+        );
+
+        check_size_align!(
+            struct {
+                a: u32,
+                b: [u16; self.a],
+            }
+            len: 4,
+            align: 4,
+            max: 2,
+        );
+
+        check_size_align!(
+            struct {
+                a: u32,
+                b: [u32; self.a],
+            }
+            len: 4,
+            align: 4,
+            max: 4,
+        );
+
+        check_size_align!(
+            struct {
+                a: u32,
+                b: [u32; self.a],
+                c: u32,
+            }
+            len: 4 + 4,
+            align: 4,
+            max: 4,
+        );
+
+        flat_serialize!{
+            struct NestedA {
+                a: u32,
+                b: u16,
+            }
+        }
+
+        check_size_align!(
+            struct {
+                a: u32,
+                #[flat_serialize::flatten]
+                b: NestedA<'a>,
+            }
+            len: 4 + (4 + 2),
+            align: 4,
+            max: 2,
+        );
+
+        check_size_align!(
+            struct {
+                a: u64,
+                #[flat_serialize::flatten]
+                b: NestedA<'a>,
+            }
+            len: 8 + (4 + 2),
+            align: 8,
+            max: 2,
+        );
+
+        check_size_align!(
+            struct {
+                a: u64,
+                #[flat_serialize::flatten]
+                b: NestedA<'a>,
+                c: u8
+            }
+            len: 8 + (4 + 2) + 1,
+            align: 8,
+            max: 1,
+        );
+
+        check_size_align!(
+            struct {
+                #[flat_serialize::flatten]
+                a: NestedA<'a>,
+                b: u8,
+                c: u8,
+                #[flat_serialize::flatten]
+                d: NestedA<'a>,
+            }
+            len: (4 + 2) + 1 + 1 + (4 + 2),
+            align: 4,
+            max: 2,
+        );
+
+        flat_serialize!{
+            struct NestedB {
+                a: u32,
+                b: [u16; self.a],
+            }
+        }
+
+        check_size_align!(
+            struct {
+                a: u32,
+                #[flat_serialize::flatten]
+                b: NestedB<'a>,
+            }
+            len: 4 + (4),
+            align: 4,
+            max: 2,
+        );
+
+        check_size_align!(
+            struct {
+                a: u64,
+                #[flat_serialize::flatten]
+                b: NestedB<'a>,
+            }
+            len: 8 + (4),
+            align: 8,
+            max: 2,
+        );
+
+        check_size_align!(
+            struct {
+                a: u64,
+                #[flat_serialize::flatten]
+                b: NestedB<'a>,
+                c: u8
+            }
+            len: 8 + (4) + 1,
+            align: 8,
+            max: 1,
+        );
     }
 }
