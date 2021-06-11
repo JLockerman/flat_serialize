@@ -761,4 +761,18 @@ mod tests {
         let _ = check_flat_serializable_impl::<Foo>;
         let _ = check_flat_serializable_impl::<[Foo; 2]>;
     };
+
+    #[derive(FlatSerializable)]
+    #[allow(dead_code)]
+    #[repr(u8)]
+    enum Bar {
+        A,
+        B,
+    }
+
+    const _:() = {
+        fn check_flat_serializable_impl<T: FlatSerializable>() {}
+        let _ = check_flat_serializable_impl::<Bar>;
+        let _ = check_flat_serializable_impl::<[Bar; 2]>;
+    };
 }

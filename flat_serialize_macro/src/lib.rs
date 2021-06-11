@@ -1184,9 +1184,31 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
     let name = &input.ident;
 
     let s = match &input.data {
-        syn::Data::Enum(e) => return quote_spanned! {e.enum_token.span()=>
-            compile_error!("FlatSerializable not allowed on enums")
-        }.into(),
+        syn::Data::Enum(e) => {
+            let has_repr = input.attrs.iter()
+                .any(|attr| {
+                    let meta = match attr.parse_meta() {
+                        Ok(meta) => meta,
+                        _ => return false,
+                    };
+                    meta.path().get_ident().map_or(false, |id| id == "repr")
+                        && attr.parse_args().map_or(false, |ident: Ident|
+                            ident == "u8" || ident == "u16" || ident == "u32" || ident == "u64"
+                        )
+                });
+            if !has_repr {
+                return quote_spanned! {e.enum_token.span()=>
+                    compile_error!{"FlatSerializable only allowed on #[repr(u..)] enums without variants"}
+                }.into()
+            }
+            let all_unit = e.variants.iter().all(|variant| matches!(variant.fields, syn::Fields::Unit));
+            if !all_unit {
+                return quote_spanned! {e.enum_token.span()=>
+                    compile_error!{"FlatSerializable only allowed on until enums"}
+                }.into()
+            }
+            return quote!{unsafe impl FlatSerializable for #name {}}.into()
+        },
         syn::Data::Union(u) => return quote_spanned! {u.union_token.span()=>
             compile_error!("FlatSerializable not allowed on unions")
         }.into(),
