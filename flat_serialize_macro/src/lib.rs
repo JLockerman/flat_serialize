@@ -458,12 +458,6 @@ impl FlatSerializeStruct {
         start: TokenStream2,
         min_align: TokenStream2,
     ) -> TokenStream2 {
-        // TODO
-        if self.fields.iter().any(|f| f.flatten) {
-            //TODO
-            return quote! {};
-        }
-
         // we create the size/align values as ever-increasing expressions
         // instead of variables due to the way span info works: we want to use
         // the span of the inputted type so that errors are reported only at the
@@ -504,26 +498,33 @@ impl FlatSerializeStruct {
     fn fn_max_provided_alignment(&self) -> TokenStream2 {
         let alignments = self.fields.iter().flat_map(|f| f.max_provided_alignment());
         quote! {
-            pub const fn max_provided_alignment() -> usize {
+            pub const fn max_provided_alignment() -> Option<usize> {
                 use std::mem::align_of;
                 let mut min_size = Self::min_len();
-                let mut min_align = 8;
+                let mut min_align: Option<usize> = None;
                 #(
-                    let alignment = #alignments;
-                    if alignment < min_align {
-                        min_align = alignment;
+                    match (#alignments, min_align) {
+                        (None, _) => (),
+                        (Some(align), None) => min_align = Some(align),
+                        (Some(align), Some(min)) if align < min =>
+                            min_align = Some(align),
+                        _ => (),
                     }
                 )*
+                let min_align = match min_align {
+                    None => return None,
+                    Some(min_align) => min_align,
+                };
                 if min_size % 8 == 0 && min_align >= 8 {
-                    return 8
+                    return Some(8)
                 }
                 if min_size % 4 == 0 && min_align >= 4 {
-                    return 4
+                    return Some(4)
                 }
                 if min_size % 2 == 0 && min_align >= 2 {
-                    return 2
+                    return Some(2)
                 }
-                return 1
+                return Some(1)
             }
         }
     }
@@ -660,7 +661,28 @@ impl FlatSerializeField {
     fn alignment_check(&self, size: &mut TokenStream2, min_align: &mut TokenStream2) -> TokenStream2 {
         use std::mem::replace;
         if self.flatten {
-            todo!("alignment_check of flatten types")
+            let ty = parser::as_turbofish(&self.ty);
+
+            let new_size = quote!{#size + #ty::min_len()};
+            let new_min_align = quote!{
+                match #ty::max_provided_alignment() {
+                    Some(align) => {
+                        if align < #min_align {
+                            align
+                        } else {
+                            #min_align
+                        }
+                    },
+                    None => #min_align
+                }
+            };
+
+            let size = replace(size, new_size);
+            let min_align = replace(min_align, new_min_align);
+            return quote_spanned!{self.ty.span()=>
+                let _alignment_check: () = [()][(#size) % #ty::required_alignment()];
+                let _alignment_check2: () = [()][(#ty::required_alignment() > #min_align) as u8 as usize];
+            }
         }
         match &self.length_info {
             None => {
@@ -716,7 +738,7 @@ impl FlatSerializeField {
         }
         self.length_info.as_ref().map(|info| {
             let ty = &info.ty;
-            quote!{ align_of::<#ty>() }
+            quote!{ Some(align_of::<#ty>()) }
         })
     }
 

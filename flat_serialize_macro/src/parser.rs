@@ -347,12 +347,16 @@ pub fn as_turbofish(ty: &Type) -> TokenStream2 {
                     output = quote!{ #output::#segment};
                 }
             },
-            args @ syn::PathArguments::AngleBracketed(_) => {
+            syn::PathArguments::AngleBracketed(_) => {
                 let ident = &segment.ident;
                 if output.is_empty() {
-                    output = quote!{ #leading_colon #ident::#args };
+                    // TODO leave in args?
+                    // output = quote!{ #leading_colon #ident::#args };
+                    output = quote!{ #leading_colon #ident };
                 } else {
-                    output = quote!{ #output::#ident::#args };
+                    // TODO leave in args?
+                    // output = quote!{ #output::#ident::#args };
+                    output = quote!{ #output::#ident };
                 }
             },
         }

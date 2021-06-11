@@ -164,7 +164,7 @@ mod tests {
 
         assert_eq!(Basic::min_len(), 18);
         assert_eq!(Basic::required_alignment(), 8);
-        assert_eq!(Basic::max_provided_alignment(), 1);
+        assert_eq!(Basic::max_provided_alignment(), Some(1));
     }
 
     #[test]
@@ -435,7 +435,7 @@ mod tests {
             }
             len: 1,
             align: 1,
-            max: 1,
+            max: None,
         );
 
 
@@ -445,7 +445,7 @@ mod tests {
             }
             len: 2,
             align: 2,
-            max: 2,
+            max: None,
         );
 
         check_size_align!(
@@ -454,7 +454,7 @@ mod tests {
             }
             len: 4,
             align: 4,
-            max: 4,
+            max: None,
         );
 
         check_size_align!(
@@ -463,7 +463,7 @@ mod tests {
             }
             len: 8,
             align: 8,
-            max: 8,
+            max: None,
         );
 
         check_size_align!(
@@ -474,7 +474,7 @@ mod tests {
             }
             len: 8 + 4 + 2,
             align: 8,
-            max: 2,
+            max: None,
         );
 
         check_size_align!(
@@ -485,7 +485,7 @@ mod tests {
             }
             len: 4 + 4 + 4,
             align: 4,
-            max: 4,
+            max: None,
         );
 
         check_size_align!(
@@ -494,7 +494,7 @@ mod tests {
             }
             len: 4 * 3,
             align: 4,
-            max: 4,
+            max: None,
         );
 
         check_size_align!(
@@ -504,7 +504,7 @@ mod tests {
             }
             len: 4,
             align: 4,
-            max: 2,
+            max: Some(2),
         );
 
         check_size_align!(
@@ -514,7 +514,7 @@ mod tests {
             }
             len: 4,
             align: 4,
-            max: 4,
+            max: Some(4),
         );
 
         check_size_align!(
@@ -525,7 +525,7 @@ mod tests {
             }
             len: 4 + 4,
             align: 4,
-            max: 4,
+            max: Some(4),
         );
 
         flat_serialize!{
@@ -543,7 +543,7 @@ mod tests {
             }
             len: 4 + (4 + 2),
             align: 4,
-            max: 2,
+            max: None,
         );
 
         check_size_align!(
@@ -554,7 +554,7 @@ mod tests {
             }
             len: 8 + (4 + 2),
             align: 8,
-            max: 2,
+            max: None,
         );
 
         check_size_align!(
@@ -566,7 +566,7 @@ mod tests {
             }
             len: 8 + (4 + 2) + 1,
             align: 8,
-            max: 1,
+            max: None,
         );
 
         check_size_align!(
@@ -576,11 +576,11 @@ mod tests {
                 b: u8,
                 c: u8,
                 #[flat_serialize::flatten]
-                d: NestedA<'a>,
+                f: NestedA<'a>,
             }
             len: (4 + 2) + 1 + 1 + (4 + 2),
             align: 4,
-            max: 2,
+            max: None,
         );
 
         flat_serialize!{
@@ -598,7 +598,7 @@ mod tests {
             }
             len: 4 + (4),
             align: 4,
-            max: 2,
+            max: Some(2),
         );
 
         check_size_align!(
@@ -609,7 +609,7 @@ mod tests {
             }
             len: 8 + (4),
             align: 8,
-            max: 2,
+            max: Some(2),
         );
 
         check_size_align!(
@@ -621,7 +621,21 @@ mod tests {
             }
             len: 8 + (4) + 1,
             align: 8,
-            max: 1,
+            max: Some(1),
+        );
+
+        check_size_align!(
+            struct {
+                a: u8,
+                b: u8,
+                c: u8,
+                d: u8,
+                #[flat_serialize::flatten]
+                e: NestedB<'a>,
+            }
+            len: 4 + (4),
+            align: 4,
+            max: Some(2),
         );
     }
 }
