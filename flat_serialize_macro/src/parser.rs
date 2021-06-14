@@ -377,3 +377,15 @@ pub fn as_turbofish(ty: &Type) -> TokenStream2 {
 
     output
 }
+
+pub fn has_lifetime(ty: &Type) -> bool {
+    struct Visitor(bool);
+    impl<'ast> Visit<'ast> for Visitor {
+        fn visit_lifetime(&mut self, _: &'ast syn::Lifetime) {
+            self.0 = true
+        }
+    }
+    let mut visit = Visitor(false);
+    syn::visit::visit_type(&mut visit, ty);
+    visit.0
+}

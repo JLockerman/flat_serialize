@@ -13,10 +13,11 @@ supports variable-length fields where the length is stored in an earlier field.
 /// This will define a struct like
 /// ```
 /// struct Basic<'a> {
-///     header: &'a u32,
+///     header: u32,
+///     data_len: usize,
+///     array: [u16; 3],
 ///     data: &'a [u8],
 ///     data2: &'a [u8],
-///     array: &'a [u16; 3],
 /// }
 /// ```
 /// along with various functions to read and write this data to byte buffers
@@ -25,9 +26,9 @@ flat_serialize!{
     struct Basic {
         header: u32,
         data_len: usize,
+        array: [u16; 3],
         data: [u8; self.data_len],
         data2: [u8; self.data_len / 2],
-        array: [u16; 3],
     }
 }
 
@@ -35,10 +36,10 @@ flat_serialize!{
 #[test]
 fn basic() {
     let basic = Basic{
-        header: &33,
+        header: 33,
+        array: [202, 404, 555],
         data: &[1, 3, 5, 7, 9, 11],
         data2: &[4, 4, 4],
-        array: &[202, 404, 555],
     };
 
     // The generated struct can be used to serialize data to a byte vector
@@ -50,9 +51,9 @@ fn basic() {
         Basic::try_ref(&bytes).unwrap()
     };
     assert_eq!(deserialized.header, &33);
+    assert_eq!(deserialized.array, &[202, 404, 555]);
     assert_eq!(deserialized.data, &[1, 3, 5, 7, 9, 11][..]);
     assert_eq!(deserialized.data2, &[4, 4, 4][..]);
-    assert_eq!(deserialized.array, &[202, 404, 555]);
     assert_eq!(remaining_bytes, &[][..]);
 
     // For serialization, the generated code will simply write each field, one
@@ -61,11 +62,11 @@ fn basic() {
     let mut expected = Vec::new();
     bytes.extend_from_slice(&33u32.to_ne_bytes());
     bytes.extend_from_slice(&6usize.to_ne_bytes());
-    bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
-    bytes.extend_from_slice(&[4, 4, 4]);
     bytes.extend_from_slice(&202u16.to_ne_bytes());
     bytes.extend_from_slice(&404u16.to_ne_bytes());
     bytes.extend_from_slice(&555u16.to_ne_bytes());
+    bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
+    bytes.extend_from_slice(&[4, 4, 4]);
     assert_eq!(serialized, expected);
 }
 ```
@@ -78,7 +79,7 @@ fn basic() {
 //  The data layout is equivalent to just inlining all the fields.
 /// ```
 /// struct Nested<'a> {
-///     prefix: &'a u64,
+///     prefix: u64,
 ///     basic: Basic<'a>,
 /// }
 /// ```
@@ -105,7 +106,7 @@ flat_serialize!{
     }
 }
 
-fn enum_example(e: Enum<'_>) {
+fn enum_example(e: Enum) {
     match e {
         Enum::First{ data_len, data } => todo!(),
         Enum::Fixed{ array } => todo!(),

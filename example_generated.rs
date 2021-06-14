@@ -1,8 +1,8 @@
 #[derive(Copy, Clone, Debug)]
 pub struct Basic<'a> {
-    pub header: &'a u64,
-    pub data_len: &'a u32,
-    pub array: &'a [u16; 3],
+    pub header: u64,
+    pub data_len: u32,
+    pub array: [u16; 3],
     pub data: &'a [u8],
     pub data2: &'a [u8],
 }
@@ -114,9 +114,9 @@ impl<'a> Basic<'a> {
     #[inline(always)]
     pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
-        let mut header: Option<&u64> = None;
-        let mut data_len: Option<&u32> = None;
-        let mut array: Option<&[u16; 3]> = None;
+        let mut header: Option<u64> = None;
+        let mut data_len: Option<u32> = None;
+        let mut array: Option<[u16; 3]> = None;
         let mut data: Option<&[u8]> = None;
         let mut data2: Option<&[u8]> = None;
         'tryref: loop {
@@ -128,10 +128,9 @@ impl<'a> Basic<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u64 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u64 = __packet_macro_field.as_ptr().cast::<u64>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                header = Some(__packet_macro_field);
+                header = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
@@ -142,10 +141,9 @@ impl<'a> Basic<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u32 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u32 = __packet_macro_field.as_ptr().cast::<u32>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                data_len = Some(__packet_macro_field);
+                data_len = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
@@ -156,14 +154,14 @@ impl<'a> Basic<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &[u16; 3] =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const [u16; 3] =
+                    __packet_macro_field.as_ptr().cast::<[u16; 3]>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                array = Some(__packet_macro_field);
+                array = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
-                let __packet_macro_count = (data_len.cloned().unwrap()) as usize;
+                let __packet_macro_count = (data_len.clone().unwrap()) as usize;
                 let __packet_macro_size = ::std::mem::size_of::<u8>() * __packet_macro_count;
                 let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
                 if __packet_macro_bytes.len() < __packet_macro_size {
@@ -173,7 +171,7 @@ impl<'a> Basic<'a> {
                     __packet_macro_bytes.split_at(__packet_macro_size);
                 let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
                 let __packet_macro_field = ::std::slice::from_raw_parts(
-                    __packet_macro_field_ptr as *const u8,
+                    __packet_macro_field_ptr.cast::<u8>(),
                     __packet_macro_count,
                 );
                 debug_assert_eq!(
@@ -187,7 +185,7 @@ impl<'a> Basic<'a> {
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
-                let __packet_macro_count = (data_len.cloned().unwrap() / 2) as usize;
+                let __packet_macro_count = (data_len.clone().unwrap() / 2) as usize;
                 let __packet_macro_size = ::std::mem::size_of::<u8>() * __packet_macro_count;
                 let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
                 if __packet_macro_bytes.len() < __packet_macro_size {
@@ -197,7 +195,7 @@ impl<'a> Basic<'a> {
                     __packet_macro_bytes.split_at(__packet_macro_size);
                 let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
                 let __packet_macro_field = ::std::slice::from_raw_parts(
-                    __packet_macro_field_ptr as *const u8,
+                    __packet_macro_field_ptr.cast::<u8>(),
                     __packet_macro_count,
                 );
                 debug_assert_eq!(
@@ -226,14 +224,14 @@ impl<'a> Basic<'a> {
                 + (|| {
                     ::std::mem::size_of::<u8>()
                         * (match data_len {
-                            Some(data_len) => *data_len,
+                            Some(data_len) => data_len,
                             None => return 0usize,
                         }) as usize
                 })()
                 + (|| {
                     ::std::mem::size_of::<u8>()
                         * (match data_len {
-                            Some(data_len) => *data_len,
+                            Some(data_len) => data_len,
                             None => return 0usize,
                         } / 2) as usize
                 })(),
@@ -251,39 +249,42 @@ impl<'a> Basic<'a> {
         } = self;
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<u64>();
-            let __packet_field_bytes = header as *const u64 as *const u8;
+            let __packet_field_bytes: &u64 = &header;
+            let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
         };
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<u32>();
-            let __packet_field_bytes = data_len as *const u32 as *const u8;
+            let __packet_field_bytes: &u32 = &data_len;
+            let __packet_field_bytes = (__packet_field_bytes as *const u32).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
         };
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<[u16; 3]>();
-            let __packet_field_bytes = array as *const [u16; 3] as *const u8;
+            let __packet_field_bytes: &[u16; 3] = &array;
+            let __packet_field_bytes = (__packet_field_bytes as *const [u16; 3]).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
         };
         unsafe {
-            let __packet_field_count = (*data_len) as usize;
+            let __packet_field_count = (data_len) as usize;
             let data = &data[..__packet_field_count];
             let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
-            let __packet_field_field_bytes = data.as_ptr() as *const u8;
+            let __packet_field_field_bytes = data.as_ptr().cast::<u8>();
             let __packet_field_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
         };
         unsafe {
-            let __packet_field_count = ((*data_len) / 2) as usize;
+            let __packet_field_count = ((data_len) / 2) as usize;
             let data2 = &data2[..__packet_field_count];
             let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
-            let __packet_field_field_bytes = data2.as_ptr() as *const u8;
+            let __packet_field_field_bytes = data2.as_ptr().cast::<u8>();
             let __packet_field_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
@@ -302,16 +303,16 @@ impl<'a> Basic<'a> {
             + ::std::mem::size_of::<u64>()
             + ::std::mem::size_of::<u32>()
             + ::std::mem::size_of::<[u16; 3]>()
-            + (::std::mem::size_of::<u8>() * (*data_len) as usize)
-            + (::std::mem::size_of::<u8>() * ((*data_len) / 2) as usize)
+            + (::std::mem::size_of::<u8>() * (data_len) as usize)
+            + (::std::mem::size_of::<u8>() * ((data_len) / 2) as usize)
     }
 }
 unsafe impl<'a> FlattenableRef<'a> for Basic<'a> {}
 #[derive(Copy, Clone, Debug)]
-pub struct Optional<'a> {
-    pub header: &'a u64,
-    pub optional_field: Option<&'a u32>,
-    pub non_optional_field: &'a u16,
+pub struct Optional {
+    pub header: u64,
+    pub optional_field: Option<u32>,
+    pub non_optional_field: u16,
 }
 const _: () = {
     use std::mem::{align_of, size_of};
@@ -338,7 +339,7 @@ const _: () = {
     fn non_optional_field<T: FlatSerializable>() {}
     let _ = non_optional_field::<u16>;
 };
-impl<'a> Optional<'a> {
+impl Optional {
     pub const fn required_alignment() -> usize {
         use std::mem::align_of;
         let mut required_alignment = 1;
@@ -391,11 +392,11 @@ impl<'a> Optional<'a> {
     }
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
-        let mut header: Option<&u64> = None;
-        let mut optional_field: Option<&u32> = None;
-        let mut non_optional_field: Option<&u16> = None;
+        let mut header: Option<u64> = None;
+        let mut optional_field: Option<u32> = None;
+        let mut non_optional_field: Option<u16> = None;
         'tryref: loop {
             let __packet_macro_read_len: usize = {
                 let __packet_macro_size = ::std::mem::size_of::<u64>();
@@ -405,13 +406,12 @@ impl<'a> Optional<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u64 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u64 = __packet_macro_field.as_ptr().cast::<u64>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                header = Some(__packet_macro_field);
+                header = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
-            let __packet_macro_read_len: usize = if header.cloned().unwrap() != 1 {
+            let __packet_macro_read_len: usize = if header.clone().unwrap() != 1 {
                 let __packet_macro_size = ::std::mem::size_of::<u32>();
                 let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
                 if __packet_macro_bytes.len() < __packet_macro_size {
@@ -419,10 +419,9 @@ impl<'a> Optional<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u32 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u32 = __packet_macro_field.as_ptr().cast::<u32>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                optional_field = Some(__packet_macro_field);
+                optional_field = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             } else {
                 __packet_macro_read_len
@@ -435,10 +434,9 @@ impl<'a> Optional<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u16 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u16 = __packet_macro_field.as_ptr().cast::<u16>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                non_optional_field = Some(__packet_macro_field);
+                non_optional_field = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             let _ref = Optional {
@@ -452,7 +450,7 @@ impl<'a> Optional<'a> {
             0 + ::std::mem::size_of::<u64>()
                 + (|| {
                     if match header {
-                        Some(header) => *header,
+                        Some(header) => header,
                         None => return 0usize,
                     } != 1
                     {
@@ -474,16 +472,18 @@ impl<'a> Optional<'a> {
         } = self;
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<u64>();
-            let __packet_field_bytes = header as *const u64 as *const u8;
+            let __packet_field_bytes: &u64 = &header;
+            let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
         };
         unsafe {
-            if (*header) != 1 {
-                let optional_field: &u32 = optional_field.unwrap();
+            if (header) != 1 {
+                let optional_field: &u32 = optional_field.as_ref().unwrap();
                 let __packet_field_size = ::std::mem::size_of::<u32>();
-                let __packet_field_field_bytes = optional_field as *const u32 as *const u8;
+                let __packet_field_field_bytes =
+                    (optional_field as *const u32).cast::<u32>().cast::<u8>();
                 let __packet_field_field_slice =
                     ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
                 __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
@@ -491,7 +491,8 @@ impl<'a> Optional<'a> {
         };
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<u16>();
-            let __packet_field_bytes = non_optional_field as *const u16 as *const u8;
+            let __packet_field_bytes: &u16 = &non_optional_field;
+            let __packet_field_bytes = (__packet_field_bytes as *const u16).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
@@ -506,7 +507,7 @@ impl<'a> Optional<'a> {
         } = self;
         0usize
             + ::std::mem::size_of::<u64>()
-            + (if (*header) != 1 {
+            + (if (header) != 1 {
                 ::std::mem::size_of::<u32>()
             } else {
                 0
@@ -514,10 +515,10 @@ impl<'a> Optional<'a> {
             + ::std::mem::size_of::<u16>()
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for Optional<'a> {}
+unsafe impl<'a> FlattenableRef<'a> for Optional {}
 #[derive(Copy, Clone)]
 pub struct Nested<'a> {
-    pub prefix: &'a u64,
+    pub prefix: u64,
     pub basic: Basic<'a>,
 }
 const _: () = {
@@ -584,7 +585,7 @@ impl<'a> Nested<'a> {
     #[inline(always)]
     pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
-        let mut prefix: Option<&u64> = None;
+        let mut prefix: Option<u64> = None;
         let mut basic: Option<Basic<'a>> = None;
         'tryref: loop {
             let __packet_macro_read_len: usize = {
@@ -595,10 +596,9 @@ impl<'a> Nested<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u64 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u64 = __packet_macro_field.as_ptr().cast::<u64>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                prefix = Some(__packet_macro_field);
+                prefix = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
@@ -633,7 +633,8 @@ impl<'a> Nested<'a> {
         let &Nested { prefix, basic } = self;
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<u64>();
-            let __packet_field_bytes = prefix as *const u64 as *const u8;
+            let __packet_field_bytes: &u64 = &prefix;
+            let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
@@ -649,8 +650,8 @@ impl<'a> Nested<'a> {
 unsafe impl<'a> FlattenableRef<'a> for Nested<'a> {}
 #[derive(Copy, Clone)]
 pub enum BasicEnum<'a> {
-    First { data_len: &'a u32, data: &'a [u8] },
-    Fixed { array: &'a [u16; 3] },
+    First { data_len: u32, data: &'a [u8] },
+    Fixed { array: [u16; 3] },
 }
 const _: () = {
     use std::mem::{align_of, size_of};
@@ -839,15 +840,14 @@ impl<'a> BasicEnum<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u64 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u64 = __packet_macro_field.as_ptr().cast::<u64>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                k = Some(__packet_macro_field);
+                k = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             match k {
-                Some(&2) => {
-                    let mut data_len: Option<&u32> = None;
+                Some(2) => {
+                    let mut data_len: Option<u32> = None;
                     let mut data: Option<&[u8]> = None;
                     'tryref_0: loop {
                         let __packet_macro_read_len: usize = {
@@ -859,14 +859,14 @@ impl<'a> BasicEnum<'a> {
                             }
                             let (__packet_macro_field, __packet_macro_rem_bytes) =
                                 __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: &u32 =
-                                ::std::mem::transmute(__packet_macro_field.as_ptr());
+                            let __packet_macro_field: *const u32 =
+                                __packet_macro_field.as_ptr().cast::<u32>();
                             __packet_macro_bytes = __packet_macro_rem_bytes;
-                            data_len = Some(__packet_macro_field);
+                            data_len = Some(__packet_macro_field.read_unaligned());
                             __packet_macro_read_len
                         };
                         let __packet_macro_read_len: usize = {
-                            let __packet_macro_count = (data_len.cloned().unwrap()) as usize;
+                            let __packet_macro_count = (data_len.clone().unwrap()) as usize;
                             let __packet_macro_size =
                                 ::std::mem::size_of::<u8>() * __packet_macro_count;
                             let __packet_macro_read_len =
@@ -878,7 +878,7 @@ impl<'a> BasicEnum<'a> {
                                 __packet_macro_bytes.split_at(__packet_macro_size);
                             let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
                             let __packet_macro_field = ::std::slice::from_raw_parts(
-                                __packet_macro_field_ptr as *const u8,
+                                __packet_macro_field_ptr.cast::<u8>(),
                                 __packet_macro_count,
                             );
                             debug_assert_eq!(
@@ -905,14 +905,14 @@ impl<'a> BasicEnum<'a> {
                             + (|| {
                                 ::std::mem::size_of::<u8>()
                                     * (match data_len {
-                                        Some(data_len) => *data_len,
+                                        Some(data_len) => data_len,
                                         None => return 0usize,
                                     }) as usize
                             })(),
                     ));
                 }
-                Some(&3) => {
-                    let mut array: Option<&[u16; 3]> = None;
+                Some(3) => {
+                    let mut array: Option<[u16; 3]> = None;
                     'tryref_1: loop {
                         let __packet_macro_read_len: usize = {
                             let __packet_macro_size = ::std::mem::size_of::<[u16; 3]>();
@@ -923,10 +923,10 @@ impl<'a> BasicEnum<'a> {
                             }
                             let (__packet_macro_field, __packet_macro_rem_bytes) =
                                 __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: &[u16; 3] =
-                                ::std::mem::transmute(__packet_macro_field.as_ptr());
+                            let __packet_macro_field: *const [u16; 3] =
+                                __packet_macro_field.as_ptr().cast::<[u16; 3]>();
                             __packet_macro_bytes = __packet_macro_rem_bytes;
-                            array = Some(__packet_macro_field);
+                            array = Some(__packet_macro_field.read_unaligned());
                             __packet_macro_read_len
                         };
                         let _ref = BasicEnum::Fixed {
@@ -951,23 +951,25 @@ impl<'a> BasicEnum<'a> {
                 let k: &u64 = &2;
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<u64>();
-                    let __packet_field_bytes = k as *const u64 as *const u8;
+                    let __packet_field_bytes: &u64 = &k;
+                    let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
                 }
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<u32>();
-                    let __packet_field_bytes = data_len as *const u32 as *const u8;
+                    let __packet_field_bytes: &u32 = &data_len;
+                    let __packet_field_bytes = (__packet_field_bytes as *const u32).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
                 };
                 unsafe {
-                    let __packet_field_count = (*data_len) as usize;
+                    let __packet_field_count = (data_len) as usize;
                     let data = &data[..__packet_field_count];
                     let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
-                    let __packet_field_field_bytes = data.as_ptr() as *const u8;
+                    let __packet_field_field_bytes = data.as_ptr().cast::<u8>();
                     let __packet_field_field_slice = ::std::slice::from_raw_parts(
                         __packet_field_field_bytes,
                         __packet_field_size,
@@ -979,14 +981,17 @@ impl<'a> BasicEnum<'a> {
                 let k: &u64 = &3;
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<u64>();
-                    let __packet_field_bytes = k as *const u64 as *const u8;
+                    let __packet_field_bytes: &u64 = &k;
+                    let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
                 }
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<[u16; 3]>();
-                    let __packet_field_bytes = array as *const [u16; 3] as *const u8;
+                    let __packet_field_bytes: &[u16; 3] = &array;
+                    let __packet_field_bytes =
+                        (__packet_field_bytes as *const [u16; 3]).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
@@ -1000,7 +1005,7 @@ impl<'a> BasicEnum<'a> {
             &BasicEnum::First { data_len, data } => {
                 ::std::mem::size_of::<u64>()
                     + ::std::mem::size_of::<u32>()
-                    + (::std::mem::size_of::<u8>() * (*data_len) as usize)
+                    + (::std::mem::size_of::<u8>() * (data_len) as usize)
             }
             &BasicEnum::Fixed { array } => {
                 ::std::mem::size_of::<u64>() + ::std::mem::size_of::<[u16; 3]>()
@@ -1012,13 +1017,13 @@ unsafe impl<'a> FlattenableRef<'a> for BasicEnum<'a> {}
 #[derive(Copy, Clone)]
 pub enum PaddedEnum<'a> {
     First {
-        padding: &'a [u8; 3],
-        data_len: &'a u32,
+        padding: [u8; 3],
+        data_len: u32,
         data: &'a [u8],
     },
     Fixed {
-        padding: &'a u8,
-        array: &'a [u16; 3],
+        padding: u8,
+        array: [u16; 3],
     },
 }
 const _: () = {
@@ -1230,16 +1235,15 @@ impl<'a> PaddedEnum<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u8 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u8 = __packet_macro_field.as_ptr().cast::<u8>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                k = Some(__packet_macro_field);
+                k = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             match k {
-                Some(&2) => {
-                    let mut padding: Option<&[u8; 3]> = None;
-                    let mut data_len: Option<&u32> = None;
+                Some(2) => {
+                    let mut padding: Option<[u8; 3]> = None;
+                    let mut data_len: Option<u32> = None;
                     let mut data: Option<&[u8]> = None;
                     'tryref_0: loop {
                         let __packet_macro_read_len: usize = {
@@ -1251,10 +1255,10 @@ impl<'a> PaddedEnum<'a> {
                             }
                             let (__packet_macro_field, __packet_macro_rem_bytes) =
                                 __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: &[u8; 3] =
-                                ::std::mem::transmute(__packet_macro_field.as_ptr());
+                            let __packet_macro_field: *const [u8; 3] =
+                                __packet_macro_field.as_ptr().cast::<[u8; 3]>();
                             __packet_macro_bytes = __packet_macro_rem_bytes;
-                            padding = Some(__packet_macro_field);
+                            padding = Some(__packet_macro_field.read_unaligned());
                             __packet_macro_read_len
                         };
                         let __packet_macro_read_len: usize = {
@@ -1266,14 +1270,14 @@ impl<'a> PaddedEnum<'a> {
                             }
                             let (__packet_macro_field, __packet_macro_rem_bytes) =
                                 __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: &u32 =
-                                ::std::mem::transmute(__packet_macro_field.as_ptr());
+                            let __packet_macro_field: *const u32 =
+                                __packet_macro_field.as_ptr().cast::<u32>();
                             __packet_macro_bytes = __packet_macro_rem_bytes;
-                            data_len = Some(__packet_macro_field);
+                            data_len = Some(__packet_macro_field.read_unaligned());
                             __packet_macro_read_len
                         };
                         let __packet_macro_read_len: usize = {
-                            let __packet_macro_count = (data_len.cloned().unwrap()) as usize;
+                            let __packet_macro_count = (data_len.clone().unwrap()) as usize;
                             let __packet_macro_size =
                                 ::std::mem::size_of::<u8>() * __packet_macro_count;
                             let __packet_macro_read_len =
@@ -1285,7 +1289,7 @@ impl<'a> PaddedEnum<'a> {
                                 __packet_macro_bytes.split_at(__packet_macro_size);
                             let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
                             let __packet_macro_field = ::std::slice::from_raw_parts(
-                                __packet_macro_field_ptr as *const u8,
+                                __packet_macro_field_ptr.cast::<u8>(),
                                 __packet_macro_count,
                             );
                             debug_assert_eq!(
@@ -1314,15 +1318,15 @@ impl<'a> PaddedEnum<'a> {
                             + (|| {
                                 ::std::mem::size_of::<u8>()
                                     * (match data_len {
-                                        Some(data_len) => *data_len,
+                                        Some(data_len) => data_len,
                                         None => return 0usize,
                                     }) as usize
                             })(),
                     ));
                 }
-                Some(&3) => {
-                    let mut padding: Option<&u8> = None;
-                    let mut array: Option<&[u16; 3]> = None;
+                Some(3) => {
+                    let mut padding: Option<u8> = None;
+                    let mut array: Option<[u16; 3]> = None;
                     'tryref_1: loop {
                         let __packet_macro_read_len: usize = {
                             let __packet_macro_size = ::std::mem::size_of::<u8>();
@@ -1333,10 +1337,10 @@ impl<'a> PaddedEnum<'a> {
                             }
                             let (__packet_macro_field, __packet_macro_rem_bytes) =
                                 __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: &u8 =
-                                ::std::mem::transmute(__packet_macro_field.as_ptr());
+                            let __packet_macro_field: *const u8 =
+                                __packet_macro_field.as_ptr().cast::<u8>();
                             __packet_macro_bytes = __packet_macro_rem_bytes;
-                            padding = Some(__packet_macro_field);
+                            padding = Some(__packet_macro_field.read_unaligned());
                             __packet_macro_read_len
                         };
                         let __packet_macro_read_len: usize = {
@@ -1348,10 +1352,10 @@ impl<'a> PaddedEnum<'a> {
                             }
                             let (__packet_macro_field, __packet_macro_rem_bytes) =
                                 __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: &[u16; 3] =
-                                ::std::mem::transmute(__packet_macro_field.as_ptr());
+                            let __packet_macro_field: *const [u16; 3] =
+                                __packet_macro_field.as_ptr().cast::<[u16; 3]>();
                             __packet_macro_bytes = __packet_macro_rem_bytes;
-                            array = Some(__packet_macro_field);
+                            array = Some(__packet_macro_field.read_unaligned());
                             __packet_macro_read_len
                         };
                         let _ref = PaddedEnum::Fixed {
@@ -1383,30 +1387,34 @@ impl<'a> PaddedEnum<'a> {
                 let k: &u8 = &2;
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<u8>();
-                    let __packet_field_bytes = k as *const u8 as *const u8;
+                    let __packet_field_bytes: &u8 = &k;
+                    let __packet_field_bytes = (__packet_field_bytes as *const u8).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
                 }
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<[u8; 3]>();
-                    let __packet_field_bytes = padding as *const [u8; 3] as *const u8;
+                    let __packet_field_bytes: &[u8; 3] = &padding;
+                    let __packet_field_bytes =
+                        (__packet_field_bytes as *const [u8; 3]).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
                 };
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<u32>();
-                    let __packet_field_bytes = data_len as *const u32 as *const u8;
+                    let __packet_field_bytes: &u32 = &data_len;
+                    let __packet_field_bytes = (__packet_field_bytes as *const u32).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
                 };
                 unsafe {
-                    let __packet_field_count = (*data_len) as usize;
+                    let __packet_field_count = (data_len) as usize;
                     let data = &data[..__packet_field_count];
                     let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
-                    let __packet_field_field_bytes = data.as_ptr() as *const u8;
+                    let __packet_field_field_bytes = data.as_ptr().cast::<u8>();
                     let __packet_field_field_slice = ::std::slice::from_raw_parts(
                         __packet_field_field_bytes,
                         __packet_field_size,
@@ -1418,21 +1426,25 @@ impl<'a> PaddedEnum<'a> {
                 let k: &u8 = &3;
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<u8>();
-                    let __packet_field_bytes = k as *const u8 as *const u8;
+                    let __packet_field_bytes: &u8 = &k;
+                    let __packet_field_bytes = (__packet_field_bytes as *const u8).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
                 }
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<u8>();
-                    let __packet_field_bytes = padding as *const u8 as *const u8;
+                    let __packet_field_bytes: &u8 = &padding;
+                    let __packet_field_bytes = (__packet_field_bytes as *const u8).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
                 };
                 unsafe {
                     let __packet_field_size = ::std::mem::size_of::<[u16; 3]>();
-                    let __packet_field_bytes = array as *const [u16; 3] as *const u8;
+                    let __packet_field_bytes: &[u16; 3] = &array;
+                    let __packet_field_bytes =
+                        (__packet_field_bytes as *const [u16; 3]).cast::<u8>();
                     let __packet_field_slice =
                         ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                     __packet_macro_bytes.extend_from_slice(__packet_field_slice)
@@ -1451,7 +1463,7 @@ impl<'a> PaddedEnum<'a> {
                 ::std::mem::size_of::<u8>()
                     + ::std::mem::size_of::<[u8; 3]>()
                     + ::std::mem::size_of::<u32>()
-                    + (::std::mem::size_of::<u8>() * (*data_len) as usize)
+                    + (::std::mem::size_of::<u8>() * (data_len) as usize)
             }
             &PaddedEnum::Fixed { padding, array } => {
                 ::std::mem::size_of::<u8>()
@@ -1463,10 +1475,10 @@ impl<'a> PaddedEnum<'a> {
 }
 unsafe impl<'a> FlattenableRef<'a> for PaddedEnum<'a> {}
 #[derive(Copy, Clone, Debug)]
-pub struct InMacro<'a> {
-    pub a: &'a u32,
-    pub padding: &'a [u8; 4],
-    pub b: &'a f64,
+pub struct InMacro {
+    pub a: u32,
+    pub padding: [u8; 4],
+    pub b: f64,
 }
 const _: () = {
     use std::mem::{align_of, size_of};
@@ -1488,7 +1500,7 @@ const _: () = {
     fn b<T: FlatSerializable>() {}
     let _ = b::<f64>;
 };
-impl<'a> InMacro<'a> {
+impl InMacro {
     pub const fn required_alignment() -> usize {
         use std::mem::align_of;
         let mut required_alignment = 1;
@@ -1535,11 +1547,11 @@ impl<'a> InMacro<'a> {
     }
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
-        let mut a: Option<&u32> = None;
-        let mut padding: Option<&[u8; 4]> = None;
-        let mut b: Option<&f64> = None;
+        let mut a: Option<u32> = None;
+        let mut padding: Option<[u8; 4]> = None;
+        let mut b: Option<f64> = None;
         'tryref: loop {
             let __packet_macro_read_len: usize = {
                 let __packet_macro_size = ::std::mem::size_of::<u32>();
@@ -1549,10 +1561,9 @@ impl<'a> InMacro<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &u32 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const u32 = __packet_macro_field.as_ptr().cast::<u32>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                a = Some(__packet_macro_field);
+                a = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
@@ -1563,10 +1574,10 @@ impl<'a> InMacro<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &[u8; 4] =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const [u8; 4] =
+                    __packet_macro_field.as_ptr().cast::<[u8; 4]>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                padding = Some(__packet_macro_field);
+                padding = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
@@ -1577,10 +1588,9 @@ impl<'a> InMacro<'a> {
                 }
                 let (__packet_macro_field, __packet_macro_rem_bytes) =
                     __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: &f64 =
-                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                let __packet_macro_field: *const f64 = __packet_macro_field.as_ptr().cast::<f64>();
                 __packet_macro_bytes = __packet_macro_rem_bytes;
-                b = Some(__packet_macro_field);
+                b = Some(__packet_macro_field.read_unaligned());
                 __packet_macro_read_len
             };
             let _ref = InMacro {
@@ -1602,21 +1612,24 @@ impl<'a> InMacro<'a> {
         let &InMacro { a, padding, b } = self;
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<u32>();
-            let __packet_field_bytes = a as *const u32 as *const u8;
+            let __packet_field_bytes: &u32 = &a;
+            let __packet_field_bytes = (__packet_field_bytes as *const u32).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
         };
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<[u8; 4]>();
-            let __packet_field_bytes = padding as *const [u8; 4] as *const u8;
+            let __packet_field_bytes: &[u8; 4] = &padding;
+            let __packet_field_bytes = (__packet_field_bytes as *const [u8; 4]).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
         };
         unsafe {
             let __packet_field_size = ::std::mem::size_of::<f64>();
-            let __packet_field_bytes = b as *const f64 as *const u8;
+            let __packet_field_bytes: &f64 = &b;
+            let __packet_field_bytes = (__packet_field_bytes as *const f64).cast::<u8>();
             let __packet_field_slice =
                 ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
             __packet_macro_bytes.extend_from_slice(__packet_field_slice)
@@ -1631,4 +1644,4 @@ impl<'a> InMacro<'a> {
             + ::std::mem::size_of::<f64>()
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for InMacro<'a> {}
+unsafe impl<'a> FlattenableRef<'a> for InMacro {}

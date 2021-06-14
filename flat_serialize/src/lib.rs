@@ -1,3 +1,4 @@
+
 #[derive(Debug)]
 pub enum WrapErr {
     NotEnoughBytes(usize),
@@ -66,13 +67,13 @@ mod tests {
             rem,
         ) = unsafe { Basic::try_ref(&bytes).unwrap() };
         assert_eq!(
-            (header, data_len, data, data2, array, rem),
+            (header, data_len, array, data, data2, rem),
             (
-                &33,
-                &6,
+                33,
+                6,
+                [202, 404, 555],
                 &[1, 3, 5, 7, 9, 11][..],
                 &[4, 4, 4][..],
-                &[202, 404, 555],
                 &[][..]
             )
         );
@@ -110,11 +111,11 @@ mod tests {
     fn bad_len1() {
         let mut output = vec![];
         Basic {
-            header: &1,
-            data_len: &5,
+            header: 1,
+            data_len: 5,
+            array: [0; 3],
             data: &[1],
             data2: &[2],
-            array: &[0; 3],
         }
         .fill_vec(&mut output);
     }
@@ -124,11 +125,11 @@ mod tests {
     fn bad_len2() {
         let mut output = vec![];
         Basic {
-            header: &1,
-            data_len: &5,
+            header: 1,
+            data_len: 5,
+            array: [0; 3],
             data: &[1, 2, 3, 4, 5],
             data2: &[],
-            array: &[0; 3],
         }
         .fill_vec(&mut output);
     }
@@ -141,6 +142,12 @@ mod tests {
             non_optional_field: u16,
         }
     }
+
+    const _TEST_NO_VARIABLE_LEN_NO_LIFETIME: Optional = Optional {
+        header: 0,
+        optional_field: None,
+        non_optional_field: 0,
+    };
 
     #[test]
     fn optional_present() {
@@ -159,9 +166,9 @@ mod tests {
         assert_eq!(
             (header, optional_field, non_optional_field, rem),
             (
-                &101010101,
-                Some(&30),
-                &6,
+                101010101,
+                Some(30),
+                6,
                 &[][..]
             )
         );
@@ -192,9 +199,9 @@ mod tests {
         assert_eq!(
             (header, optional_field, non_optional_field, rem),
             (
-                &1,
+                1,
                 None,
-                &7,
+                7,
                 &[][..]
             )
         );
@@ -235,22 +242,22 @@ mod tests {
                     Basic {
                         header,
                         data_len,
+                        array,
                         data,
                         data2,
-                        array,
                     },
             },
             rem,
         ) = unsafe { Nested::try_ref(&bytes).unwrap() };
         assert_eq!(
-            (prefix, header, data_len, data, data2, array, rem),
+            (prefix, header, data_len, array, data, data2, rem),
             (
-                &101010101,
-                &33,
-                &6,
+                101010101,
+                33,
+                6,
+                [202, 404, 555],
                 &[1, 3, 5, 7, 9, 11][..],
                 &[4, 4, 4][..],
-                &[202, 404, 555],
                 &[][..]
             )
         );
@@ -295,7 +302,7 @@ mod tests {
         };
         assert_eq!(
             (data_len, data, rem),
-            (&6, &[1, 3, 5, 7, 9, 11][..], &[][..])
+            (6, &[1, 3, 5, 7, 9, 11][..], &[][..])
         );
 
         let mut output = vec![];
@@ -315,13 +322,13 @@ mod tests {
             (BasicEnum::Fixed { array }, rem) => (array, rem),
             _ => unreachable!(),
         };
-        assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
+        assert_eq!((array, rem), ([3, 6, 9], &[7][..]));
 
         let (array, rem) = match unsafe { BasicEnum::try_ref(&bytes).unwrap() } {
             (BasicEnum::Fixed { array }, rem) => (array, rem),
             _ => unreachable!(),
         };
-        assert_eq!((array, rem), (&[3, 6, 9], &[7][..]));
+        assert_eq!((array, rem), ([3, 6, 9], &[7][..]));
 
         let mut output = vec![];
         BasicEnum::Fixed { array }.fill_vec(&mut output);
@@ -358,7 +365,7 @@ mod tests {
         };
         assert_eq!(
             (padding, data_len, data, rem),
-            (&[0xf, 0xf, 0xf], &6, &[1, 3, 5, 7, 9, 11][..], &[][..])
+            ([0xf, 0xf, 0xf], 6, &[1, 3, 5, 7, 9, 11][..], &[][..])
         );
 
         let mut output = vec![];
@@ -379,13 +386,13 @@ mod tests {
             (PaddedEnum::Fixed { padding, array }, rem) => (padding, array, rem),
             _ => unreachable!(),
         };
-        assert_eq!((padding, array, rem), (&0, &[3, 6, 9], &[7][..]));
+        assert_eq!((padding, array, rem), (0, [3, 6, 9], &[7][..]));
 
         let (padding, array, rem) = match unsafe { PaddedEnum::try_ref(&bytes).unwrap() } {
             (PaddedEnum::Fixed {padding, array }, rem) => (padding, array, rem),
             _ => unreachable!(),
         };
-        assert_eq!((padding, array, rem), (&0, &[3, 6, 9], &[7][..]));
+        assert_eq!((padding, array, rem), (0, [3, 6, 9], &[7][..]));
 
         let mut output = vec![];
         PaddedEnum::Fixed { padding, array }.fill_vec(&mut output);
@@ -418,6 +425,49 @@ mod tests {
             padding: [u8; 4], // with this commented out, the error should be on b
             b: f64,
         }
+    }
+
+    #[test]
+    fn test_no_refrence() {
+        flat_serialize!{
+            struct NoLifetime {
+                val: i64,
+            }
+        }
+
+        let _: NoLifetime = NoLifetime{ val: 3 };
+
+        flat_serialize!{
+            struct NestedNoLifetime {
+                #[flat_serialize::flatten]
+                nested: NoLifetime,
+            }
+        }
+
+        let _: NestedNoLifetime = NestedNoLifetime{ nested: NoLifetime{ val: 3 } };
+
+        flat_serialize!{
+            enum ENoLifetime {
+                tag: i64,
+                Variant: 1 {
+                    val: i64,
+                },
+            }
+        }
+
+        let _: ENoLifetime = ENoLifetime::Variant{ val: 2 };
+
+        flat_serialize!{
+            enum NestedENoLifetime {
+                tag: i64,
+                Variant: 2 {
+                    #[flat_serialize::flatten]
+                    val: ENoLifetime,
+                },
+            }
+        }
+
+        let _: NestedENoLifetime = NestedENoLifetime::Variant{val: ENoLifetime::Variant{ val: 2 }};
     }
 
     macro_rules! check_size_align {
@@ -554,7 +604,7 @@ mod tests {
             struct {
                 a: u32,
                 #[flat_serialize::flatten]
-                b: NestedA<'a>,
+                b: NestedA,
             }
             len: 4 + (4 + 2),
             align: 4,
@@ -565,7 +615,7 @@ mod tests {
             struct {
                 a: u64,
                 #[flat_serialize::flatten]
-                b: NestedA<'a>,
+                b: NestedA,
             }
             len: 8 + (4 + 2),
             align: 8,
@@ -576,7 +626,7 @@ mod tests {
             struct {
                 a: u64,
                 #[flat_serialize::flatten]
-                b: NestedA<'a>,
+                b: NestedA,
                 c: u8
             }
             len: 8 + (4 + 2) + 1,
@@ -587,11 +637,11 @@ mod tests {
         check_size_align!(
             struct {
                 #[flat_serialize::flatten]
-                a: NestedA<'a>,
+                a: NestedA,
                 b: u8,
                 c: u8,
                 #[flat_serialize::flatten]
-                f: NestedA<'a>,
+                f: NestedA,
             }
             len: (4 + 2) + 1 + 1 + (4 + 2),
             align: 4,
@@ -672,7 +722,7 @@ mod tests {
         check_size_align!(
             struct {
                 #[flat_serialize::flatten]
-                a: EnumA<'a>,
+                a: EnumA,
             }
             len: (4 + 2),
             align: 4,
@@ -682,7 +732,7 @@ mod tests {
         check_size_align!(
             struct {
                 #[flat_serialize::flatten]
-                a: EnumA<'a>,
+                a: EnumA,
                 b: u16,
             }
             len: (4 + 2) + 2,
@@ -694,7 +744,7 @@ mod tests {
             struct {
                 b: u64,
                 #[flat_serialize::flatten]
-                a: EnumA<'a>,
+                a: EnumA,
             }
             len: 8 + (4 + 2),
             align: 8,
@@ -716,7 +766,7 @@ mod tests {
         check_size_align!(
             struct {
                 #[flat_serialize::flatten]
-                a: EnumB<'a>,
+                a: EnumB,
             }
             len: (4 + 2),
             align: 4,
@@ -727,7 +777,7 @@ mod tests {
             struct {
                 b: u64,
                 #[flat_serialize::flatten]
-                a: EnumB<'a>,
+                a: EnumB,
             }
             len: 8 + (4 + 2),
             align: 8,

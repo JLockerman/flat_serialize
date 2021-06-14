@@ -141,19 +141,25 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
         let required_alignment = input.fn_required_alignment();
         let max_provided_alignment = input.fn_max_provided_alignment();
         let min_len = input.fn_min_len();
-        let try_ref = input.fn_try_ref();
+
+        let has_lifetime = input.fields.iter()
+            .any(|f| f.is_by_ref());
+
+        let lifetime = has_lifetime.then(|| quote!{ 'a });
+        let try_ref = input.fn_try_ref(lifetime.as_ref());
         let fill_vec = input.fn_fill_vec();
         let len = input.fn_len();
         let fields = input
             .fields
             .iter()
             .map(|f| f.declaration(true, input.per_field_attrs.iter()));
+        let lifetime_args = has_lifetime.then(|| quote!{ <'a> });
         let attrs = &*input.attrs;
 
         quote! {
             #[derive(Copy, Clone)]
             #(#attrs)*
-            pub struct #ident<'a> {
+            pub struct #ident #lifetime_args {
                 #(#fields)*
             }
 
@@ -161,7 +167,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 
             #trait_check
 
-            impl<'a> #ident<'a> {
+            impl #lifetime_args #ident #lifetime_args {
                 #required_alignment
 
                 #max_provided_alignment
@@ -175,28 +181,12 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                 #len
             }
 
-            unsafe impl<'a> FlattenableRef<'a> for #ident<'a> {}
+            unsafe impl<'a> FlattenableRef<'a> for #ident #lifetime_args {}
         }
     };
 
-    // TODO
-    // let mut_def = {
-    //     let fields: Vec<_> = input.fields.iter().enumerate().map(|(i, f)| {
-    //         let name = f.ident.as_ref().unwrap();
-    //         let ty = exposed_ty(&field_paths[i], &f.ty);
-    //         quote! { pub #name: &'a mut #ty, }
-    //     }).collect();
-    //     quote! {
-    //         #[derive(Copy, Clone)]
-    //         pub struct Mut<'a> {
-    //             #(#fields)*
-    //         }
-    //     }
-    // };
-
     let expanded = quote! {
         #ref_def
-        // #mut_def
     };
 
     expanded
@@ -209,12 +199,23 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let required_alignment = input.fn_required_alignment();
     let max_provided_alignment = input.fn_max_provided_alignment();
     let min_len = input.fn_min_len();
-    let try_ref = input.fn_try_ref();
+
+    let has_lifetime = input.variants.iter().any(|variant|
+        variant.body.fields.iter()
+            .any(|f| f.is_by_ref())
+    );
+    let lifetime = has_lifetime.then(|| quote!{ 'a });
+    let lifetime_args = has_lifetime.then(|| quote!{ <'a> });
+
+
+    let try_ref = input.fn_try_ref(lifetime.as_ref());
     let fill_vec = input.fn_fill_vec();
     let len = input.fn_len();
-    let body = input.variants();
+    let body = input.variants(lifetime_args.as_ref());
     let ident = &input.ident;
     let attrs = &*input.attrs;
+
+
 
     quote! {
         #[derive(Copy, Clone)]
@@ -227,7 +228,7 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
 
         #trait_check
 
-        impl<'a> #ident<'a> {
+        impl #lifetime_args #ident #lifetime_args {
             #required_alignment
 
             #max_provided_alignment
@@ -241,14 +242,14 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
             #len
         }
 
-        unsafe impl<'a> FlattenableRef<'a> for #ident<'a> {}
+        unsafe impl<'a> FlattenableRef<'a> for #ident #lifetime_args {}
     }
 }
 
 impl VariableLenFieldInfo {
     fn len_from_bytes(&self) -> TokenStream2 {
         let mut lfb = SelfReplacer(|name|
-            syn::parse_quote! { #name.cloned().unwrap() }
+            syn::parse_quote! { #name.clone().unwrap() }
         );
         let mut len = self.len_expr.clone();
         lfb.visit_expr_mut(&mut len);
@@ -257,7 +258,7 @@ impl VariableLenFieldInfo {
 
     fn counter_expr(&self) -> TokenStream2 {
         let mut ce = SelfReplacer(|name|
-            syn::parse_quote! { (*#name) }
+            syn::parse_quote! { (#name) }
         );
         let mut len = self.len_expr.clone();
         ce.visit_expr_mut(&mut len);
@@ -267,7 +268,7 @@ impl VariableLenFieldInfo {
     fn err_size_expr(&self) -> TokenStream2 {
         let mut ese = SelfReplacer(|name|
             syn::parse_quote! {
-                match #name { Some(#name) => *#name, None => return 0usize, }
+                match #name { Some(#name) => #name, None => return 0usize, }
             }
         );
         let mut len = self.len_expr.clone();
@@ -304,7 +305,7 @@ struct TryRefBody {
 }
 
 impl FlatSerializeEnum {
-    fn variants(&self) -> TokenStream2 {
+    fn variants(&self, lifetime: Option<&TokenStream2>) -> TokenStream2 {
         let id = &self.ident;
         let variants = self.variants.iter().map(|variant| {
             let fields = variant.body.fields.iter().map(|f|
@@ -318,7 +319,7 @@ impl FlatSerializeEnum {
             }
         });
         quote! {
-            pub enum #id<'a> {
+            pub enum #id #lifetime {
                 #(#variants)*
             }
         }
@@ -511,7 +512,7 @@ impl FlatSerializeEnum {
         }
     }
 
-    fn fn_try_ref(&self) -> TokenStream2 {
+    fn fn_try_ref(&self, lifetime: Option<&TokenStream2>) -> TokenStream2 {
         let break_label = syn::Lifetime::new("'tryref_tag", proc_macro2::Span::call_site());
         let try_wrap_tag = self.tag.try_wrap(&break_label);
         let id = &self.ident;
@@ -535,7 +536,7 @@ impl FlatSerializeEnum {
                 .fn_try_ref_body(&break_label);
 
             quote! {
-                Some(&#tag_val) => {
+                Some(#tag_val) => {
                     #vars
                     #break_label: loop {
                         #body
@@ -552,7 +553,7 @@ impl FlatSerializeEnum {
         quote! {
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
-            pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+            pub unsafe fn try_ref(mut __packet_macro_bytes: & #lifetime [u8]) -> Result<(Self, & #lifetime [u8]), WrapErr> {
                 let __packet_macro_read_len = 0usize;
                 let mut #tag_ident = None;
                 'tryref_tag: loop {
@@ -726,6 +727,7 @@ impl FlatSerializeStruct {
 
     fn fn_try_ref(
         &self,
+        lifetime: Option<&TokenStream2>,
     ) -> TokenStream2 {
         let break_label = syn::Lifetime::new("'tryref", proc_macro2::Span::call_site());
         let id = &self.ident;
@@ -738,7 +740,7 @@ impl FlatSerializeStruct {
         quote! {
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
-            pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+            pub unsafe fn try_ref(mut __packet_macro_bytes: & #lifetime [u8]) -> Result<(Self, & #lifetime [u8]), WrapErr> {
                 let __packet_macro_read_len = 0usize;
                 #vars
                 #break_label: loop {
@@ -901,10 +903,11 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
             let name = self.ident.as_ref().unwrap();
+            let lifetime = self.is_by_ref().then(|| quote!{ <'static> });
             // based on static_assertions
             return quote_spanned!{self.ty.span()=>
                 fn #name<'a, T: FlattenableRef<'a>>() {}
-                let _ = #name::<#ty<'static>>;
+                let _ = #name::<#ty #lifetime>;
             }
         }
         let ty = match &self.length_info {
@@ -1014,7 +1017,7 @@ impl FlatSerializeField {
                             __packet_macro_bytes.split_at(__packet_macro_size);
                         let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
                         let __packet_macro_field = ::std::slice::from_raw_parts(
-                            __packet_macro_field_ptr as *const #ty, __packet_macro_count);
+                            __packet_macro_field_ptr.cast::<#ty>(), __packet_macro_count);
                         debug_assert_eq!(
                             __packet_macro_field_ptr.offset(__packet_macro_size as isize) as usize,
                             __packet_macro_field.as_ptr().offset(__packet_macro_count as isize) as usize
@@ -1037,10 +1040,9 @@ impl FlatSerializeField {
                             }
                             let (__packet_macro_field, __packet_macro_rem_bytes) =
                                 __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: &#ty =
-                                ::std::mem::transmute(__packet_macro_field.as_ptr());
+                            let __packet_macro_field: *const #ty = __packet_macro_field.as_ptr().cast::<#ty>();
                             __packet_macro_bytes = __packet_macro_rem_bytes;
-                            #ident = Some(__packet_macro_field);
+                            #ident = Some(__packet_macro_field.read_unaligned());
                             __packet_macro_read_len
                         } else {
                             __packet_macro_read_len
@@ -1057,10 +1059,9 @@ impl FlatSerializeField {
                         }
                         let (__packet_macro_field, __packet_macro_rem_bytes) =
                             __packet_macro_bytes.split_at(__packet_macro_size);
-                        let __packet_macro_field: &#ty =
-                            ::std::mem::transmute(__packet_macro_field.as_ptr());
+                        let __packet_macro_field: *const #ty = __packet_macro_field.as_ptr().cast::<#ty>();
                         __packet_macro_bytes = __packet_macro_rem_bytes;
-                        #ident = Some(__packet_macro_field);
+                        #ident = Some(__packet_macro_field.read_unaligned());
                         __packet_macro_read_len
                     };
                 }
@@ -1095,7 +1096,7 @@ impl FlatSerializeField {
                         let #ident = &#ident[..__packet_field_count];
                         let __packet_field_size =
                             ::std::mem::size_of::<#ty>() * __packet_field_count;
-                        let __packet_field_field_bytes = #ident.as_ptr() as *const u8;
+                        let __packet_field_field_bytes = #ident.as_ptr().cast::<u8>();
                         let __packet_field_field_slice =
                             ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
                         __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
@@ -1108,9 +1109,9 @@ impl FlatSerializeField {
                 quote! {
                     unsafe {
                         if #is_present {
-                            let #ident: &#ty = #ident.unwrap();
+                            let #ident: &#ty = #ident.as_ref().unwrap();
                             let __packet_field_size = ::std::mem::size_of::<#ty>();
-                            let __packet_field_field_bytes = #ident as *const #ty as *const u8;
+                            let __packet_field_field_bytes = (#ident as *const #ty).cast::<#ty>().cast::<u8>();
                             let __packet_field_field_slice =
                                 ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
                             __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
@@ -1123,7 +1124,8 @@ impl FlatSerializeField {
                 quote! {
                     unsafe {
                         let __packet_field_size = ::std::mem::size_of::<#ty>();
-                        let __packet_field_bytes = #ident as *const #ty as *const u8;
+                        let __packet_field_bytes: &#ty = &#ident;
+                        let __packet_field_bytes = (__packet_field_bytes as *const #ty).cast::<u8>();
                         let __packet_field_slice =
                             ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
                         __packet_macro_bytes.extend_from_slice(__packet_field_slice)
@@ -1167,11 +1169,11 @@ impl FlatSerializeField {
         match &self.length_info {
             None => {
                 let nominal_ty = &self.ty;
-                quote! { &'a #nominal_ty }
+                quote! { #nominal_ty }
             },
             Some(VariableLenFieldInfo { is_optional: false, ty, .. }) => quote! { &'a [#ty] },
             Some(VariableLenFieldInfo { is_optional: true, ty, .. }) => {
-                quote! { Option<&'a #ty> }
+                quote! { Option<#ty> }
             },
         }
     }
@@ -1180,15 +1182,11 @@ impl FlatSerializeField {
         match &self.length_info {
             None => {
                 let ty = &self.ty;
-                if self.flatten {
-                    quote! { Option<#ty> }
-                } else {
-                    quote! { Option<&#ty> }
-                }
+                quote! { Option<#ty> }
             },
             Some(VariableLenFieldInfo { is_optional: false, ty, .. }) => quote! { Option<&[#ty]> },
             Some(VariableLenFieldInfo { is_optional: true, ty, .. }) => {
-                quote! { Option<&#ty> }
+                quote! { Option<#ty> }
             },
         }
     }
@@ -1258,6 +1256,11 @@ impl FlatSerializeField {
 
     fn is_optional(&self) -> bool {
         matches!(self.length_info, Some(VariableLenFieldInfo { is_optional: true, ..}))
+    }
+
+    fn is_by_ref(&self) -> bool {
+        matches!(self.length_info, Some(VariableLenFieldInfo { is_optional: false, ..}))
+        || parser::has_lifetime(&self.ty)
     }
 }
 
