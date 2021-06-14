@@ -163,7 +163,7 @@ impl<'a> Basic<'a> {
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
-                let __packet_macro_count = data_len.cloned().unwrap() as usize;
+                let __packet_macro_count = (data_len.cloned().unwrap()) as usize;
                 let __packet_macro_size = ::std::mem::size_of::<u8>() * __packet_macro_count;
                 let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
                 if __packet_macro_bytes.len() < __packet_macro_size {
@@ -187,7 +187,7 @@ impl<'a> Basic<'a> {
                 __packet_macro_read_len
             };
             let __packet_macro_read_len: usize = {
-                let __packet_macro_count = data_len.cloned().unwrap() as usize / 2;
+                let __packet_macro_count = (data_len.cloned().unwrap() / 2) as usize;
                 let __packet_macro_size = ::std::mem::size_of::<u8>() * __packet_macro_count;
                 let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
                 if __packet_macro_bytes.len() < __packet_macro_size {
@@ -223,10 +223,20 @@ impl<'a> Basic<'a> {
             0 + ::std::mem::size_of::<u64>()
                 + ::std::mem::size_of::<u32>()
                 + ::std::mem::size_of::<[u16; 3]>()
-                + (::std::mem::size_of::<u8>()
-                    * ((data_len.as_ref().map(|c| **c).unwrap_or(0)) as usize))
-                + (::std::mem::size_of::<u8>()
-                    * ((data_len.as_ref().map(|c| **c).unwrap_or(0)) as usize / 2)),
+                + (|| {
+                    ::std::mem::size_of::<u8>()
+                        * (match data_len {
+                            Some(data_len) => *data_len,
+                            None => return 0usize,
+                        }) as usize
+                })()
+                + (|| {
+                    ::std::mem::size_of::<u8>()
+                        * (match data_len {
+                            Some(data_len) => *data_len,
+                            None => return 0usize,
+                        } / 2) as usize
+                })(),
         ))
     }
     #[allow(unused_assignments, unused_variables)]
@@ -270,7 +280,7 @@ impl<'a> Basic<'a> {
             __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
         };
         unsafe {
-            let __packet_field_count = (*data_len) as usize / 2;
+            let __packet_field_count = ((*data_len) / 2) as usize;
             let data2 = &data2[..__packet_field_count];
             let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
             let __packet_field_field_bytes = data2.as_ptr() as *const u8;
@@ -292,11 +302,219 @@ impl<'a> Basic<'a> {
             + ::std::mem::size_of::<u64>()
             + ::std::mem::size_of::<u32>()
             + ::std::mem::size_of::<[u16; 3]>()
-            + (::std::mem::size_of::<u8>() * ((*data_len) as usize))
-            + (::std::mem::size_of::<u8>() * ((*data_len) as usize / 2))
+            + (::std::mem::size_of::<u8>() * (*data_len) as usize)
+            + (::std::mem::size_of::<u8>() * ((*data_len) / 2) as usize)
     }
 }
 unsafe impl<'a> FlattenableRef<'a> for Basic<'a> {}
+#[derive(Copy, Clone, Debug)]
+pub struct Optional<'a> {
+    pub header: &'a u64,
+    pub optional_field: Option<&'a u32>,
+    pub non_optional_field: &'a u16,
+}
+const _: () = {
+    use std::mem::{align_of, size_of};
+    let _alignment_check = [()][(0) % align_of::<u64>()];
+    let _alignment_check2 = [()][(align_of::<u64>() > 8) as u8 as usize];
+    let _padding_check = [()][(size_of::<u64>() < align_of::<u64>()) as u8 as usize];
+    let _alignment_check: () = [()][(0 + size_of::<u64>()) % align_of::<u32>()];
+    let _alignment_check2: () = [()][(align_of::<u32>() > 8) as u8 as usize];
+    let _padding_check: () = [()][(size_of::<u32>() < align_of::<u32>()) as u8 as usize];
+    let _alignment_check = [()][(0 + size_of::<u64>()) % align_of::<u16>()];
+    let _alignment_check2 = [()][(align_of::<u16>()
+        > if align_of::<u32>() < 8 {
+            align_of::<u32>()
+        } else {
+            8
+        }) as u8 as usize];
+    let _padding_check = [()][(size_of::<u16>() < align_of::<u16>()) as u8 as usize];
+};
+const _: () = {
+    fn header<T: FlatSerializable>() {}
+    let _ = header::<u64>;
+    fn optional_field<T: FlatSerializable>() {}
+    let _ = optional_field::<u32>;
+    fn non_optional_field<T: FlatSerializable>() {}
+    let _ = non_optional_field::<u16>;
+};
+impl<'a> Optional<'a> {
+    pub const fn required_alignment() -> usize {
+        use std::mem::align_of;
+        let mut required_alignment = 1;
+        let alignment = align_of::<u64>();
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        let alignment = align_of::<u32>();
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        let alignment = align_of::<u16>();
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        required_alignment
+    }
+    pub const fn max_provided_alignment() -> Option<usize> {
+        use std::mem::align_of;
+        let mut min_align: Option<usize> = None;
+        match (Some(align_of::<u32>()), min_align) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        let min_align = match min_align {
+            None => return None,
+            Some(min_align) => min_align,
+        };
+        let min_size = Self::min_len();
+        if min_size % 8 == 0 && min_align >= 8 {
+            return Some(8);
+        }
+        if min_size % 4 == 0 && min_align >= 4 {
+            return Some(4);
+        }
+        if min_size % 2 == 0 && min_align >= 2 {
+            return Some(2);
+        }
+        return Some(1);
+    }
+    pub const fn min_len() -> usize {
+        use std::mem::size_of;
+        let mut size = 0;
+        size += size_of::<u64>();
+        size += 0;
+        size += size_of::<u16>();
+        size
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+        let __packet_macro_read_len = 0usize;
+        let mut header: Option<&u64> = None;
+        let mut optional_field: Option<&u32> = None;
+        let mut non_optional_field: Option<&u16> = None;
+        'tryref: loop {
+            let __packet_macro_read_len: usize = {
+                let __packet_macro_size = ::std::mem::size_of::<u64>();
+                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                if __packet_macro_bytes.len() < __packet_macro_size {
+                    break 'tryref;
+                }
+                let (__packet_macro_field, __packet_macro_rem_bytes) =
+                    __packet_macro_bytes.split_at(__packet_macro_size);
+                let __packet_macro_field: &u64 =
+                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                __packet_macro_bytes = __packet_macro_rem_bytes;
+                header = Some(__packet_macro_field);
+                __packet_macro_read_len
+            };
+            let __packet_macro_read_len: usize = if header.cloned().unwrap() != 1 {
+                let __packet_macro_size = ::std::mem::size_of::<u32>();
+                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                if __packet_macro_bytes.len() < __packet_macro_size {
+                    break 'tryref;
+                }
+                let (__packet_macro_field, __packet_macro_rem_bytes) =
+                    __packet_macro_bytes.split_at(__packet_macro_size);
+                let __packet_macro_field: &u32 =
+                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                __packet_macro_bytes = __packet_macro_rem_bytes;
+                optional_field = Some(__packet_macro_field);
+                __packet_macro_read_len
+            } else {
+                __packet_macro_read_len
+            };
+            let __packet_macro_read_len: usize = {
+                let __packet_macro_size = ::std::mem::size_of::<u16>();
+                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                if __packet_macro_bytes.len() < __packet_macro_size {
+                    break 'tryref;
+                }
+                let (__packet_macro_field, __packet_macro_rem_bytes) =
+                    __packet_macro_bytes.split_at(__packet_macro_size);
+                let __packet_macro_field: &u16 =
+                    ::std::mem::transmute(__packet_macro_field.as_ptr());
+                __packet_macro_bytes = __packet_macro_rem_bytes;
+                non_optional_field = Some(__packet_macro_field);
+                __packet_macro_read_len
+            };
+            let _ref = Optional {
+                header: header.unwrap(),
+                optional_field: optional_field,
+                non_optional_field: non_optional_field.unwrap(),
+            };
+            return Ok((_ref, __packet_macro_bytes));
+        }
+        Err(WrapErr::NotEnoughBytes(
+            0 + ::std::mem::size_of::<u64>()
+                + (|| {
+                    if match header {
+                        Some(header) => *header,
+                        None => return 0usize,
+                    } != 1
+                    {
+                        ::std::mem::size_of::<u32>()
+                    } else {
+                        0
+                    }
+                })()
+                + ::std::mem::size_of::<u16>(),
+        ))
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
+        __packet_macro_bytes.reserve_exact(self.len());
+        let &Optional {
+            header,
+            optional_field,
+            non_optional_field,
+        } = self;
+        unsafe {
+            let __packet_field_size = ::std::mem::size_of::<u64>();
+            let __packet_field_bytes = header as *const u64 as *const u8;
+            let __packet_field_slice =
+                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
+            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+        };
+        unsafe {
+            if (*header) != 1 {
+                let optional_field: &u32 = optional_field.unwrap();
+                let __packet_field_size = ::std::mem::size_of::<u32>();
+                let __packet_field_field_bytes = optional_field as *const u32 as *const u8;
+                let __packet_field_field_slice =
+                    ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
+                __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+            }
+        };
+        unsafe {
+            let __packet_field_size = ::std::mem::size_of::<u16>();
+            let __packet_field_bytes = non_optional_field as *const u16 as *const u8;
+            let __packet_field_slice =
+                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
+            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+        }
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn len(&self) -> usize {
+        let &Optional {
+            header,
+            optional_field,
+            non_optional_field,
+        } = self;
+        0usize
+            + ::std::mem::size_of::<u64>()
+            + (if (*header) != 1 {
+                ::std::mem::size_of::<u32>()
+            } else {
+                0
+            })
+            + ::std::mem::size_of::<u16>()
+    }
+}
+unsafe impl<'a> FlattenableRef<'a> for Optional<'a> {}
 #[derive(Copy, Clone)]
 pub struct Nested<'a> {
     pub prefix: &'a u64,
@@ -648,7 +866,7 @@ impl<'a> BasicEnum<'a> {
                             __packet_macro_read_len
                         };
                         let __packet_macro_read_len: usize = {
-                            let __packet_macro_count = data_len.cloned().unwrap() as usize;
+                            let __packet_macro_count = (data_len.cloned().unwrap()) as usize;
                             let __packet_macro_size =
                                 ::std::mem::size_of::<u8>() * __packet_macro_count;
                             let __packet_macro_read_len =
@@ -684,8 +902,13 @@ impl<'a> BasicEnum<'a> {
                     return Err(WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u64>()
                             + ::std::mem::size_of::<u32>()
-                            + (::std::mem::size_of::<u8>()
-                                * ((data_len.as_ref().map(|c| **c).unwrap_or(0)) as usize)),
+                            + (|| {
+                                ::std::mem::size_of::<u8>()
+                                    * (match data_len {
+                                        Some(data_len) => *data_len,
+                                        None => return 0usize,
+                                    }) as usize
+                            })(),
                     ));
                 }
                 Some(&3) => {
@@ -777,7 +1000,7 @@ impl<'a> BasicEnum<'a> {
             &BasicEnum::First { data_len, data } => {
                 ::std::mem::size_of::<u64>()
                     + ::std::mem::size_of::<u32>()
-                    + (::std::mem::size_of::<u8>() * ((*data_len) as usize))
+                    + (::std::mem::size_of::<u8>() * (*data_len) as usize)
             }
             &BasicEnum::Fixed { array } => {
                 ::std::mem::size_of::<u64>() + ::std::mem::size_of::<[u16; 3]>()
@@ -1050,7 +1273,7 @@ impl<'a> PaddedEnum<'a> {
                             __packet_macro_read_len
                         };
                         let __packet_macro_read_len: usize = {
-                            let __packet_macro_count = data_len.cloned().unwrap() as usize;
+                            let __packet_macro_count = (data_len.cloned().unwrap()) as usize;
                             let __packet_macro_size =
                                 ::std::mem::size_of::<u8>() * __packet_macro_count;
                             let __packet_macro_read_len =
@@ -1088,8 +1311,13 @@ impl<'a> PaddedEnum<'a> {
                         std::mem::size_of::<u8>()
                             + ::std::mem::size_of::<[u8; 3]>()
                             + ::std::mem::size_of::<u32>()
-                            + (::std::mem::size_of::<u8>()
-                                * ((data_len.as_ref().map(|c| **c).unwrap_or(0)) as usize)),
+                            + (|| {
+                                ::std::mem::size_of::<u8>()
+                                    * (match data_len {
+                                        Some(data_len) => *data_len,
+                                        None => return 0usize,
+                                    }) as usize
+                            })(),
                     ));
                 }
                 Some(&3) => {
@@ -1223,7 +1451,7 @@ impl<'a> PaddedEnum<'a> {
                 ::std::mem::size_of::<u8>()
                     + ::std::mem::size_of::<[u8; 3]>()
                     + ::std::mem::size_of::<u32>()
-                    + (::std::mem::size_of::<u8>() * ((*data_len) as usize))
+                    + (::std::mem::size_of::<u8>() * (*data_len) as usize)
             }
             &PaddedEnum::Fixed { padding, array } => {
                 ::std::mem::size_of::<u8>()

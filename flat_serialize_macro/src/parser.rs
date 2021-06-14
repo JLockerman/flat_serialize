@@ -1,3 +1,4 @@
+
 use std::{collections::HashSet, ops::Deref};
 
 use proc_macro2::TokenStream as TokenStream2;
@@ -5,7 +6,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use syn::{Attribute, Expr, Field, Ident, Result, Token, Type, braced, parse::{Parse, ParseStream}, spanned::Spanned, token, visit::Visit};
 
 use crate::{
-    ExternalLenFieldInfo, FlatSerialize, FlatSerializeEnum, FlatSerializeField,
+    VariableLenFieldInfo, FlatSerialize, FlatSerializeEnum, FlatSerializeField,
     FlatSerializeStruct, FlatSerializeVariant, PerFieldsAttr,
 };
 
@@ -132,13 +133,22 @@ impl Parse for FlatSerializeField {
             })
             .collect();
         let mut length_info = None;
-        if let syn::Type::Array(array) = &field.ty {
+        if input.peek(Token![if]) {
+            let _: Token![if] = input.parse()?;
+            let expr = input.parse()?;
+            length_info = Some(VariableLenFieldInfo {
+                ty: field.ty.clone(),
+                len_expr: expr,
+                is_optional: true,
+            });
+        } else if let syn::Type::Array(array) = &field.ty {
             let has_self = has_self_field(&array.len);
             if has_self {
                 // let self_fields_are_valid = validate_self_field(&array.len, &seen_fields);
-                length_info = Some(ExternalLenFieldInfo {
+                length_info = Some(VariableLenFieldInfo {
                     ty: (*array.elem).clone(),
                     len_expr: array.len.clone(),
+                    is_optional: false,
                 });
             }
         }

@@ -113,7 +113,7 @@ struct FlatSerializeField {
     flatten: bool,
     // TODO is this mutually exclusive with `flatten` above? Should we make an
     // enum to select between them?
-    length_info: Option<ExternalLenFieldInfo>,
+    length_info: Option<VariableLenFieldInfo>,
 }
 
 /// a `#[flat_serialize::field_attr(fixed = "#[foo]", variable = "#[bar]"))]`
@@ -123,10 +123,13 @@ struct PerFieldsAttr {
     variable: Option<Attribute>,
 }
 
-/// how to find the length of a variable-length field.
-struct ExternalLenFieldInfo {
+/// how to find the length of a variable-length or optional field.
+struct VariableLenFieldInfo {
     ty: syn::Type,
     len_expr: syn::Expr,
+    // is an optional field instead of a general varlen field, len_expr should
+    // eval to a boolean
+    is_optional: bool,
 }
 
 fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
@@ -242,27 +245,31 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     }
 }
 
-impl ExternalLenFieldInfo {
+impl VariableLenFieldInfo {
     fn len_from_bytes(&self) -> TokenStream2 {
-        let mut lfb = SelfReplacer(|name| syn::parse_quote! { #name.cloned().unwrap() as usize });
+        let mut lfb = SelfReplacer(|name|
+            syn::parse_quote! { #name.cloned().unwrap() }
+        );
         let mut len = self.len_expr.clone();
         lfb.visit_expr_mut(&mut len);
         quote! { #len }
     }
 
     fn counter_expr(&self) -> TokenStream2 {
-        let mut ce = SelfReplacer(|name| syn::parse_quote! { (*#name) as usize });
+        let mut ce = SelfReplacer(|name|
+            syn::parse_quote! { (*#name) }
+        );
         let mut len = self.len_expr.clone();
         ce.visit_expr_mut(&mut len);
         quote! { #len }
     }
 
     fn err_size_expr(&self) -> TokenStream2 {
-        let mut ese = SelfReplacer(|name| {
+        let mut ese = SelfReplacer(|name|
             syn::parse_quote! {
-                (#name.as_ref().map(|c| **c).unwrap_or(0)) as usize
+                match #name { Some(#name) => *#name, None => return 0usize, }
             }
-        });
+        );
         let mut len = self.len_expr.clone();
         ese.visit_expr_mut(&mut len);
         quote! { #len }
@@ -755,23 +762,23 @@ impl FlatSerializeStruct {
         let ty1 =  self
             .fields
             .iter()
-            .map(|f| {
-                let ty = f.exposed_ty();
-                if f.flatten {
-                    quote! { Option<#ty> }
-                } else {
-                    quote! { Option<&#ty> }
-                }
-            });
+            .map(|f| f.local_ty());
         let field1 = field_names.clone();
         let field2 = field_names.clone();
-        let field3 = field_names;
+        let field_setters = self.fields.iter().map(|field| {
+            let name = &field.ident;
+            if field.is_optional() {
+                quote!{ #name }
+            } else {
+                quote!{ #name.unwrap() }
+            }
+        });
 
         let vars = quote!( #(let mut #field1: #ty1 = None;)* );
         let try_wrap_fields = self.fields.iter().map(|f| f.try_wrap(break_label));
         let body = quote! ( #(#try_wrap_fields)* );
 
-        let set_fields = quote!( #(#field2: #field3.unwrap()),* );
+        let set_fields = quote!( #(#field2: #field_setters),* );
 
         let err_size = self
         .fields
@@ -992,12 +999,12 @@ impl FlatSerializeField {
             };
         }
         match &self.length_info {
-            Some(info @ ExternalLenFieldInfo { .. }) => {
+            Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let count = info.len_from_bytes();
                 let ty = &info.ty;
                 quote! {
                     let __packet_macro_read_len: usize = {
-                        let __packet_macro_count = #count;
+                        let __packet_macro_count = (#count) as usize;
                         let __packet_macro_size = ::std::mem::size_of::<#ty>() * __packet_macro_count;
                         let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
                         if __packet_macro_bytes.len() < __packet_macro_size {
@@ -1016,6 +1023,28 @@ impl FlatSerializeField {
                         #ident = Some(__packet_macro_field);
                         __packet_macro_read_len
                     };
+                }
+            }
+            Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
+                let is_present = info.len_from_bytes();
+                let ty = &info.ty;
+                quote! {
+                    let __packet_macro_read_len: usize = if #is_present {
+                            let __packet_macro_size = ::std::mem::size_of::<#ty>();
+                            let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                            if __packet_macro_bytes.len() < __packet_macro_size {
+                                break #break_label
+                            }
+                            let (__packet_macro_field, __packet_macro_rem_bytes) =
+                                __packet_macro_bytes.split_at(__packet_macro_size);
+                            let __packet_macro_field: &#ty =
+                                ::std::mem::transmute(__packet_macro_field.as_ptr());
+                            __packet_macro_bytes = __packet_macro_rem_bytes;
+                            #ident = Some(__packet_macro_field);
+                            __packet_macro_read_len
+                        } else {
+                            __packet_macro_read_len
+                        };
                 }
             }
             None => {
@@ -1057,12 +1086,12 @@ impl FlatSerializeField {
     fn fill_vec_with_field(&self) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();
         match &self.length_info {
-            Some(info) => {
+            Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let count = info.counter_expr();
                 let ty = &info.ty;
                 quote! {
                     unsafe {
-                        let __packet_field_count = #count;
+                        let __packet_field_count = (#count) as usize;
                         let #ident = &#ident[..__packet_field_count];
                         let __packet_field_size =
                             ::std::mem::size_of::<#ty>() * __packet_field_count;
@@ -1070,6 +1099,22 @@ impl FlatSerializeField {
                         let __packet_field_field_slice =
                             ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
                         __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+                    }
+                }
+            }
+            Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
+                let is_present = info.counter_expr();
+                let ty = &info.ty;
+                quote! {
+                    unsafe {
+                        if #is_present {
+                            let #ident: &#ty = #ident.unwrap();
+                            let __packet_field_size = ::std::mem::size_of::<#ty>();
+                            let __packet_field_field_bytes = #ident as *const #ty as *const u8;
+                            let __packet_field_field_slice =
+                                ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
+                            __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+                        }
                     }
                 }
             }
@@ -1096,17 +1141,25 @@ impl FlatSerializeField {
             };
         }
 
-        let ty = self.exposed_ty();
         match &self.length_info {
-            Some(info @ ExternalLenFieldInfo { .. }) => {
+            Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let count = info.err_size_expr();
                 let ty = &info.ty;
                 quote! {
-                    (::std::mem::size_of::<#ty>()
-                        * (#count))
+                    (|| ::std::mem::size_of::<#ty>() * (#count) as usize)()
                 }
             }
-            None => quote! { ::std::mem::size_of::<#ty>() },
+            Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
+                let is_present = info.err_size_expr();
+                let ty = &info.ty;
+                quote! {
+                    (|| if #is_present { ::std::mem::size_of::<#ty>() } else { 0 })()
+                }
+            }
+            None => {
+                let ty = &self.ty;
+                quote! { ::std::mem::size_of::<#ty>() }
+            },
         }
     }
 
@@ -1114,9 +1167,29 @@ impl FlatSerializeField {
         match &self.length_info {
             None => {
                 let nominal_ty = &self.ty;
-                quote! { #nominal_ty }
+                quote! { &'a #nominal_ty }
             },
-            Some(ExternalLenFieldInfo { ty, .. }) => quote! { [#ty] },
+            Some(VariableLenFieldInfo { is_optional: false, ty, .. }) => quote! { &'a [#ty] },
+            Some(VariableLenFieldInfo { is_optional: true, ty, .. }) => {
+                quote! { Option<&'a #ty> }
+            },
+        }
+    }
+
+    fn local_ty(&self) -> TokenStream2 {
+        match &self.length_info {
+            None => {
+                let ty = &self.ty;
+                if self.flatten {
+                    quote! { Option<#ty> }
+                } else {
+                    quote! { Option<&#ty> }
+                }
+            },
+            Some(VariableLenFieldInfo { is_optional: false, ty, .. }) => quote! { Option<&[#ty]> },
+            Some(VariableLenFieldInfo { is_optional: true, ty, .. }) => {
+                quote! { Option<&#ty> }
+            },
         }
     }
 
@@ -1128,11 +1201,18 @@ impl FlatSerializeField {
             };
         }
         match &self.length_info {
-            Some(info) => {
+            Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let ty = &info.ty;
                 let count = info.counter_expr();
                 quote! {
-                    (::std::mem::size_of::<#ty>() * (#count))
+                    (::std::mem::size_of::<#ty>() * (#count) as usize)
+                }
+            }
+            Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
+                let ty = &info.ty;
+                let is_present = info.counter_expr();
+                quote! {
+                    (if #is_present {::std::mem::size_of::<#ty>() } else { 0 })
                 }
             }
             None => {
@@ -1156,7 +1236,7 @@ impl FlatSerializeField {
         } else {
             let ty = self.exposed_ty();
             let per_field_attrs = self.per_field_attrs(pf_attrs);
-            quote! { #(#per_field_attrs)* #(#attrs)* #pub_marker #name: &'a #ty, }
+            quote! { #(#per_field_attrs)* #(#attrs)* #pub_marker #name: #ty, }
         }
     }
 
@@ -1174,6 +1254,10 @@ impl FlatSerializeField {
                 None => quote! {},
             },
         })
+    }
+
+    fn is_optional(&self) -> bool {
+        matches!(self.length_info, Some(VariableLenFieldInfo { is_optional: true, ..}))
     }
 }
 

@@ -134,6 +134,82 @@ mod tests {
     }
 
     flat_serialize! {
+        #[derive(Debug)]
+        struct Optional {
+            header: u64,
+            optional_field: u32 if self.header != 1,
+            non_optional_field: u16,
+        }
+    }
+
+    #[test]
+    fn optional_present() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&101010101u64.to_ne_bytes());
+        bytes.extend_from_slice(&30u32.to_ne_bytes());
+        bytes.extend_from_slice(&6u16.to_ne_bytes());
+        let (
+            Optional {
+                header,
+                optional_field,
+                non_optional_field,
+            },
+            rem,
+        ) = unsafe { Optional::try_ref(&bytes).unwrap() };
+        assert_eq!(
+            (header, optional_field, non_optional_field, rem),
+            (
+                &101010101,
+                Some(&30),
+                &6,
+                &[][..]
+            )
+        );
+
+        let mut output = vec![];
+        Optional {
+            header,
+            optional_field,
+            non_optional_field,
+        }
+        .fill_vec(&mut output);
+        assert_eq!(output, bytes);
+    }
+
+    #[test]
+    fn optional_absent() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u64.to_ne_bytes());
+        bytes.extend_from_slice(&7u16.to_ne_bytes());
+        let (
+            Optional {
+                header,
+                optional_field,
+                non_optional_field,
+            },
+            rem,
+        ) = unsafe { Optional::try_ref(&bytes).unwrap() };
+        assert_eq!(
+            (header, optional_field, non_optional_field, rem),
+            (
+                &1,
+                None,
+                &7,
+                &[][..]
+            )
+        );
+
+        let mut output = vec![];
+        Optional {
+            header,
+            optional_field,
+            non_optional_field,
+        }
+        .fill_vec(&mut output);
+        assert_eq!(output, bytes);
+    }
+
+    flat_serialize! {
         struct Nested {
             prefix: u64,
             #[flat_serialize::flatten]
