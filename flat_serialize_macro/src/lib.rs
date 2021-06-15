@@ -111,7 +111,7 @@ struct FlatSerializeStruct {
 }
 struct FlatSerializeField {
     field: Field,
-    /// call try_ref(...)/fill_vec(...) for de/serialization
+    /// call try_ref(...)/fill_slice(...) for de/serialization
     flatten: bool,
     // TODO is this mutually exclusive with `flatten` above? Should we make an
     // enum to select between them?
@@ -143,11 +143,23 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
         let required_alignment = input.fn_required_alignment();
         let max_provided_alignment = input.fn_max_provided_alignment();
         let min_len = input.fn_min_len();
+
+        // if we ever want to force #[repr(C)] we can use this code to derive
+        // TRIVIAL_COPY from the struct fields
+        let _const_len = input.fields.iter().map(|f| {
+            if f.length_info.is_some() {
+                quote!(false)
+            } else {
+                let ty = &f.ty;
+                quote!( <#ty>::TRIVIAL_COPY )
+            }
+        });
+
         let lifetime = input.lifetime.as_ref().map(|lifetime| {
             quote!{ #lifetime }
         });
         let try_ref = input.fn_try_ref(lifetime.as_ref());
-        let fill_vec = input.fn_fill_vec();
+        let fill_slice = input.fn_fill_slice();
         let len = input.fn_len();
         let fields = input
             .fields
@@ -170,16 +182,20 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 
             #trait_check
 
-            impl #lifetime_args #ident #lifetime_args {
+
+            unsafe impl #ref_liftime FlatSerializable #ref_liftime for #ident #lifetime_args {
                 #required_alignment
 
                 #max_provided_alignment
 
                 #min_len
 
+                // cannot be TRIVIAL_COPY unless the struct is #[repr(C)]
+                const TRIVIAL_COPY: bool = false;
+
                 #try_ref
 
-                #fill_vec
+                #fill_slice
 
                 #len
             }
@@ -208,7 +224,7 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let ref_liftime = lifetime_args.clone().unwrap_or_else(|| quote!{ <'a> });
 
     let try_ref = input.fn_try_ref(lifetime.as_ref());
-    let fill_vec = input.fn_fill_vec();
+    let fill_slice = input.fn_fill_slice();
     let len = input.fn_len();
     let body = input.variants(lifetime.as_ref());
     let ident = &input.ident;
@@ -227,16 +243,19 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
 
         #trait_check
 
-        impl #lifetime_args #ident #lifetime_args {
+        unsafe impl #ref_liftime FlatSerializable #ref_liftime for #ident #lifetime_args {
             #required_alignment
 
             #max_provided_alignment
 
             #min_len
 
+            // cannot be TRIVIAL_COPY since the rust enum layout is unspecified
+            const TRIVIAL_COPY: bool = false;
+
             #try_ref
 
-            #fill_vec
+            #fill_slice
 
             #len
         }
@@ -392,7 +411,7 @@ impl FlatSerializeEnum {
         });
 
         quote! {
-            pub const fn required_alignment() -> usize {
+            const REQUIRED_ALIGNMENT: usize = {
                 use std::mem::align_of;
                 let mut required_alignment: usize = #tag_alignment;
                 #(
@@ -404,7 +423,7 @@ impl FlatSerializeEnum {
                     }
                 )*
                 required_alignment
-            }
+            };
         }
     }
 
@@ -451,7 +470,7 @@ impl FlatSerializeEnum {
             }
         });
         quote! {
-            pub const fn max_provided_alignment() -> Option<usize> {
+            const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
                 use std::mem::{align_of, size_of};
                 let mut min_align: usize = match #min_align {
                     None => 8,
@@ -465,18 +484,17 @@ impl FlatSerializeEnum {
                         min_align = variant_alignment
                     }
                 )*
-                let min_size = Self::min_len();
+                let min_size = Self::MIN_LEN;
                 if min_size % 8 == 0 && min_align >= 8 {
-                    return Some(8)
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
                 }
-                if min_size % 4 == 0 && min_align >= 4 {
-                    return Some(4)
-                }
-                if min_size % 2 == 0 && min_align >= 2 {
-                    return Some(2)
-                }
-                return Some(1)
-            }
+            };
         }
     }
 
@@ -491,7 +509,7 @@ impl FlatSerializeEnum {
             }
         });
         quote! {
-            pub const fn min_len() -> usize {
+            const MIN_LEN: usize = {
                 use std::mem::size_of;
                 let mut size: Option<usize> = None;
                 #(
@@ -504,11 +522,11 @@ impl FlatSerializeEnum {
                         Some(size) => Some(size),
                     };
                 )*
-                if let Some(size) = size {
-                    return size
+                match size {
+                    Some(size) => size,
+                    None => #tag_size,
                 }
-                #tag_size
-            }
+            };
         }
     }
 
@@ -541,7 +559,7 @@ impl FlatSerializeEnum {
                     #break_label: loop {
                         #body
                         let _ref = #id::#variant { #set_fields };
-                        return Ok((_ref, __packet_macro_bytes))
+                        return Ok((_ref, input))
                     }
                     return Err(WrapErr::NotEnoughBytes(std::mem::size_of::<#tag_ty>() #err_size))
                 }
@@ -553,7 +571,7 @@ impl FlatSerializeEnum {
         quote! {
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
-            pub unsafe fn try_ref(mut __packet_macro_bytes: & #lifetime [u8]) -> Result<(Self, & #lifetime [u8]), WrapErr> {
+            unsafe fn try_ref(mut input: & #lifetime [u8]) -> Result<(Self, & #lifetime [u8]), WrapErr> {
                 let __packet_macro_read_len = 0usize;
                 let mut #tag_ident = None;
                 'tryref_tag: loop {
@@ -569,30 +587,34 @@ impl FlatSerializeEnum {
         }
     }
 
-    fn fn_fill_vec(&self) -> TokenStream2 {
+    fn fn_fill_slice(&self) -> TokenStream2 {
         let tag_ty = &self.tag.ty;
         let tag_ident = self.tag.ident.as_ref().unwrap();
-        let fill_vec_tag = self.tag.fill_vec();
+        let fill_slice_tag = self.tag.fill_slice();
         let id = &self.ident;
         let bodies = self.variants.iter().map(|v| {
             let tag_val = &v.tag_val;
             let variant = &v.body.ident;
-            let (fields, fill_vec_with) = v.body.fill_vec_body();
+            let (fields, fill_slice_with) = v.body.fill_slice_body();
             quote! {
                 &#id::#variant { #fields } => {
                     let #tag_ident: &#tag_ty = &#tag_val;
-                    #fill_vec_tag
-                    #fill_vec_with
+                    #fill_slice_tag
+                    #fill_slice_with
                 }
             }
         });
         quote! {
             #[allow(unused_assignments, unused_variables)]
-            pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-                __packet_macro_bytes.reserve_exact(self.len());
+            unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>])
+            -> &'out mut [MaybeUninit<u8>] {
+                let total_len = self.len();
+                let (mut input, rem) = input.split_at_mut(total_len);
                 match self {
                     #(#bodies),*
                 }
+                debug_assert_eq!(input.len(), 0);
+                rem
             }
         }
     }
@@ -618,7 +640,7 @@ impl FlatSerializeEnum {
         });
         quote! {
             #[allow(unused_assignments, unused_variables)]
-            pub fn len(&self) -> usize {
+            fn len(&self) -> usize {
                 match self {
                     #(#bodies)*
                 }
@@ -665,7 +687,7 @@ impl FlatSerializeStruct {
     fn fn_required_alignment(&self) -> TokenStream2 {
         let alignments = self.fields.iter().map(|f| f.required_alignment());
         quote! {
-            pub const fn required_alignment() -> usize {
+            const REQUIRED_ALIGNMENT: usize = {
                 use std::mem::align_of;
                 let mut required_alignment = 1;
                 #(
@@ -675,14 +697,14 @@ impl FlatSerializeStruct {
                     }
                 )*
                 required_alignment
-            }
+            };
         }
     }
 
     fn fn_max_provided_alignment(&self) -> TokenStream2 {
         let alignments = self.fields.iter().flat_map(|f| f.max_provided_alignment());
         quote! {
-            pub const fn max_provided_alignment() -> Option<usize> {
+            const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
                 use std::mem::align_of;
                 let mut min_align: Option<usize> = None;
                 #(
@@ -694,34 +716,34 @@ impl FlatSerializeStruct {
                         _ => (),
                     }
                 )*
-                let min_align = match min_align {
-                    None => return None,
-                    Some(min_align) => min_align,
-                };
-                let min_size = Self::min_len();
-                if min_size % 8 == 0 && min_align >= 8 {
-                    return Some(8)
+                match min_align {
+                    None => None,
+                    Some(min_align) => {
+                        let min_size = Self::MIN_LEN;
+                        if min_size % 8 == 0 && min_align >= 8 {
+                            Some(8)
+                        } else if min_size % 4 == 0 && min_align >= 4 {
+                            Some(4)
+                        } else if min_size % 2 == 0 && min_align >= 2 {
+                            Some(2)
+                        } else {
+                            Some(1)
+                        }
+                    },
                 }
-                if min_size % 4 == 0 && min_align >= 4 {
-                    return Some(4)
-                }
-                if min_size % 2 == 0 && min_align >= 2 {
-                    return Some(2)
-                }
-                return Some(1)
-            }
+            };
         }
     }
 
     fn fn_min_len(&self) -> TokenStream2 {
         let sizes = self.fields.iter().map(|f| f.min_len());
         quote! {
-            pub const fn min_len() -> usize {
+            const MIN_LEN: usize = {
                 use std::mem::size_of;
                 let mut size = 0;
                 #(size += #sizes;)*
                 size
-            }
+            };
         }
     }
 
@@ -740,13 +762,17 @@ impl FlatSerializeStruct {
         quote! {
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
-            pub unsafe fn try_ref(mut __packet_macro_bytes: & #lifetime [u8]) -> Result<(Self, & #lifetime [u8]), WrapErr> {
+            unsafe fn try_ref(mut input: & #lifetime [u8])
+            -> Result<(Self, & #lifetime [u8]), WrapErr> {
+                if input.len() < Self::MIN_LEN {
+                    return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN))
+                }
                 let __packet_macro_read_len = 0usize;
                 #vars
                 #break_label: loop {
                     #body
                     let _ref = #id { #set_fields };
-                    return Ok((_ref, __packet_macro_bytes))
+                    return Ok((_ref, input))
                 }
                 Err(WrapErr::NotEnoughBytes(0 #err_size))
             }
@@ -795,30 +821,34 @@ impl FlatSerializeStruct {
         }
     }
 
-    fn fn_fill_vec(
+    fn fn_fill_slice(
         &self,
     ) -> TokenStream2 {
         let id = &self.ident;
-        let (fields, fill_vec_with) = self.fill_vec_body();
+        let (fields, fill_slice_with) = self.fill_slice_body();
         quote! {
             #[allow(unused_assignments, unused_variables)]
-            pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-                __packet_macro_bytes.reserve_exact(self.len());
+            #[inline(always)]
+            unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>]) -> &'out mut [MaybeUninit<u8>] {
+                let total_len = self.len();
+                let (mut input, rem) = input.split_at_mut(total_len);
                 let &#id { #fields } = self;
-                #fill_vec_with
+                #fill_slice_with
+                debug_assert_eq!(input.len(), 0);
+                rem
             }
         }
     }
-    fn fill_vec_body(
+    fn fill_slice_body(
         &self,
     ) -> (TokenStream2, TokenStream2) {
         //FIXME assert multiple values of counters are equal...
-        let fill_vec_with = self.fields.iter().map(|f| f.fill_vec());
-        let fill_vec_with = quote!( #(#fill_vec_with);* );
+        let fill_slice_with = self.fields.iter().map(|f| f.fill_slice());
+        let fill_slice_with = quote!( #(#fill_slice_with);* );
 
         let field = self.fields.iter().map(|f| f.ident.as_ref().unwrap());
         let fields = quote!( #(#field),* );
-        (fields, fill_vec_with)
+        (fields, fill_slice_with)
     }
 
     fn fn_len(
@@ -833,7 +863,8 @@ impl FlatSerializeStruct {
 
         quote! {
             #[allow(unused_assignments, unused_variables)]
-            pub fn len(&self) -> usize {
+            #[inline(always)]
+            fn len(&self) -> usize {
                 let &#id { #(#field),* } = self;
                 0usize #(+ #size)*
             }
@@ -848,9 +879,9 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
 
-            let new_size = quote!{#size + #ty::min_len()};
+            let new_size = quote!{#size + <#ty>::MIN_LEN};
             let new_min_align = quote!{
-                match #ty::max_provided_alignment() {
+                match <#ty>::MAX_PROVIDED_ALIGNMENT {
                     Some(align) => {
                         if align < #min_align {
                             align
@@ -865,8 +896,8 @@ impl FlatSerializeField {
             let size = replace(size, new_size);
             let min_align = replace(min_align, new_min_align);
             return quote_spanned!{self.ty.span()=>
-                let _alignment_check: () = [()][(#size) % #ty::required_alignment()];
-                let _alignment_check2: () = [()][(#ty::required_alignment() > #min_align) as u8 as usize];
+                let _alignment_check: () = [()][(#size) % <#ty>::REQUIRED_ALIGNMENT];
+                let _alignment_check2: () = [()][(<#ty>::REQUIRED_ALIGNMENT > #min_align) as u8 as usize];
             }
         }
         match &self.length_info {
@@ -906,7 +937,7 @@ impl FlatSerializeField {
             let lifetime = self.is_by_ref().then(|| quote!{ <'static> });
             // based on static_assertions
             return quote_spanned!{self.ty.span()=>
-                fn #name<'a, T: FlattenableRef<'a>>() {}
+                fn #name<'test, T: FlattenableRef<'test>>() {}
                 let _ = #name::<#ty #lifetime>;
             }
         }
@@ -916,7 +947,7 @@ impl FlatSerializeField {
         };
         let name = self.ident.as_ref().unwrap();
         return quote_spanned!{ty.span()=>
-            fn #name<T: FlatSerializable>() {}
+            fn #name<'i, T: FlatSerializable<'i>>() {}
             let _ = #name::<#ty>;
         }
     }
@@ -925,7 +956,7 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
             return quote_spanned!{self.ty.span()=>
-                #ty::required_alignment()
+                <#ty>::REQUIRED_ALIGNMENT
             }
         }
         match &self.length_info {
@@ -948,7 +979,7 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
             return Some(quote_spanned!{self.ty.span()=>
-                #ty::max_provided_alignment()
+                <#ty>::MAX_PROVIDED_ALIGNMENT
             })
         }
         self.length_info.as_ref().map(|info| {
@@ -964,7 +995,7 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(ty);
             return quote_spanned!{self.ty.span()=>
-                #ty::min_len()
+                <#ty>::MIN_LEN
             }
         }
         match &self.length_info {
@@ -980,126 +1011,114 @@ impl FlatSerializeField {
 
     fn try_wrap(&self, break_label: &syn::Lifetime,) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();
-        let ty = &self.ty;
-
-        if self.flatten {
-            let ty = parser::as_turbofish(ty);
-            return quote!{
-                let __packet_macro_read_len: usize = {
-                    let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
-                    let (__packet_macro_field, __packet_macro_rem_bytes) = match #ty::try_ref(__packet_macro_bytes) {
-                        Ok((f, b)) => (f, b),
-                        Err(WrapErr::InvalidTag(offset)) =>
-                            return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
-                        Err(..) => break #break_label
-
-                    };
-                    let __packet_macro_size = __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
-                    __packet_macro_bytes = __packet_macro_rem_bytes;
-                    #ident = Some(__packet_macro_field);
-                    __packet_macro_read_len + __packet_macro_size
-                };
-            };
-        }
+        let base_ty;
         match &self.length_info {
             Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let count = info.len_from_bytes();
                 let ty = &info.ty;
+                if parser::has_lifetime(ty) {
+                    return quote_spanned!{ty.span()=>
+                        compile_error!("flattened types are not allowed in variable-length fields")
+                    }
+                }
+                let const_len_check = quote_spanned!{ty.span()=>
+                    const _:() = [()][(!<#ty>::TRIVIAL_COPY) as u8 as usize];
+                };
                 quote! {
-                    let __packet_macro_read_len: usize = {
-                        let __packet_macro_count = (#count) as usize;
-                        let __packet_macro_size = ::std::mem::size_of::<#ty>() * __packet_macro_count;
-                        let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                        if __packet_macro_bytes.len() < __packet_macro_size {
-                            break #break_label
+                    {
+                        #const_len_check
+                        let count = (#count) as usize;
+                        let byte_len = <#ty>::MIN_LEN * count;
+                        if input.len() < byte_len {
+                            return Err(WrapErr::NotEnoughBytes(byte_len));
                         }
-                        let (__packet_macro_field_bytes, __packet_macro_rem_bytes) =
-                            __packet_macro_bytes.split_at(__packet_macro_size);
-                        let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
-                        let __packet_macro_field = ::std::slice::from_raw_parts(
-                            __packet_macro_field_ptr.cast::<#ty>(), __packet_macro_count);
+                        let (bytes, rem) = input.split_at(byte_len);
+                        let bytes = bytes.as_ptr();
+                        let field = ::std::slice::from_raw_parts(bytes.cast::<#ty>(), count);
                         debug_assert_eq!(
-                            __packet_macro_field_ptr.offset(__packet_macro_size as isize) as usize,
-                            __packet_macro_field.as_ptr().offset(__packet_macro_count as isize) as usize
+                            bytes.offset(byte_len as isize) as usize,
+                            field.as_ptr().offset(count as isize) as usize
                         );
-                        __packet_macro_bytes = __packet_macro_rem_bytes;
-                        #ident = Some(__packet_macro_field);
-                        __packet_macro_read_len
-                    };
+                        input = rem;
+                        #ident = Some(field);
+                    }
                 }
             }
             Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
                 let is_present = info.len_from_bytes();
-                let ty = &info.ty;
+                let ty =
+                    if self.flatten {
+                        base_ty = parser::as_turbofish(&self.ty);
+                        base_ty
+                    } else {
+                        let ty = &info.ty;
+                        quote!(#ty)
+                    };
+
                 quote! {
-                    let __packet_macro_read_len: usize = if #is_present {
-                            let __packet_macro_size = ::std::mem::size_of::<#ty>();
-                            let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break #break_label
-                            }
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: *const #ty = __packet_macro_field.as_ptr().cast::<#ty>();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            #ident = Some(__packet_macro_field.read_unaligned());
-                            __packet_macro_read_len
-                        } else {
-                            __packet_macro_read_len
+                    if #is_present {
+                        let (field, rem) = match <#ty>::try_ref(input) {
+                            Ok((f, b)) => (f, b),
+                            Err(WrapErr::InvalidTag(offset)) =>
+                                return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
+                            Err(..) => break #break_label
+
                         };
+                        input = rem;
+                        #ident = Some(field);
+                    }
                 }
             }
             None => {
-                quote! {
-                    let __packet_macro_read_len: usize = {
-                        let __packet_macro_size = ::std::mem::size_of::<#ty>();
-                        let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                        if __packet_macro_bytes.len() < __packet_macro_size {
-                            break #break_label
-                        }
-                        let (__packet_macro_field, __packet_macro_rem_bytes) =
-                            __packet_macro_bytes.split_at(__packet_macro_size);
-                        let __packet_macro_field: *const #ty = __packet_macro_field.as_ptr().cast::<#ty>();
-                        __packet_macro_bytes = __packet_macro_rem_bytes;
-                        #ident = Some(__packet_macro_field.read_unaligned());
-                        __packet_macro_read_len
+                let ty =
+                    if self.flatten {
+                        base_ty = parser::as_turbofish(&self.ty);
+                        base_ty
+                    } else {
+                        let ty = &self.ty;
+                        quote!(#ty)
                     };
+
+                quote!{
+                    {
+                        let (field, rem) = match <#ty>::try_ref(input) {
+                            Ok((f, b)) => (f, b),
+                            Err(WrapErr::InvalidTag(offset)) =>
+                                return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
+                            Err(..) => break #break_label
+
+                        };
+                        input = rem;
+                        #ident = Some(field);
+                    }
                 }
             }
         }
     }
 
-    fn fill_vec(&self) -> TokenStream2 {
-        if self.flatten {
-            self.fill_vec_with_flatten()
-        } else {
-            self.fill_vec_with_field()
-        }
-    }
-
-    fn fill_vec_with_flatten(&self) -> TokenStream2 {
-        let ident = self.ident.as_ref().unwrap();
-        quote! {
-            #ident.fill_vec(__packet_macro_bytes);
-        }
-    }
-
-    fn fill_vec_with_field(&self) -> TokenStream2 {
+    fn fill_slice(&self) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();
         match &self.length_info {
             Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let count = info.counter_expr();
                 let ty = &info.ty;
+                // TODO this may not elide all bounds checks
                 quote! {
                     unsafe {
-                        let __packet_field_count = (#count) as usize;
-                        let #ident = &#ident[..__packet_field_count];
-                        let __packet_field_size =
-                            ::std::mem::size_of::<#ty>() * __packet_field_count;
-                        let __packet_field_field_bytes = #ident.as_ptr().cast::<u8>();
-                        let __packet_field_field_slice =
-                            ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
-                        __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+                        let count = (#count) as usize;
+                        let #ident = &#ident[..count];
+                        if <#ty>::TRIVIAL_COPY {
+                            let size = <#ty>::MIN_LEN * count;
+                            let (out, rem) = input.split_at_mut(size);
+                            let bytes = (#ident.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                            let bytes = std::slice::from_raw_parts(bytes, size);
+                            out.copy_from_slice(bytes);
+                            input = rem;
+                        } else {
+                            for #ident in #ident {
+                                input = #ident.fill_slice(input);
+                            }
+                        }
                     }
                 }
             }
@@ -1110,25 +1129,15 @@ impl FlatSerializeField {
                     unsafe {
                         if #is_present {
                             let #ident: &#ty = #ident.as_ref().unwrap();
-                            let __packet_field_size = ::std::mem::size_of::<#ty>();
-                            let __packet_field_field_bytes = (#ident as *const #ty).cast::<#ty>().cast::<u8>();
-                            let __packet_field_field_slice =
-                                ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
-                            __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+                            input = #ident.fill_slice(input);
                         }
                     }
                 }
             }
             None => {
-                let ty = &self.ty;
                 quote! {
                     unsafe {
-                        let __packet_field_size = ::std::mem::size_of::<#ty>();
-                        let __packet_field_bytes: &#ty = &#ident;
-                        let __packet_field_bytes = (__packet_field_bytes as *const #ty).cast::<u8>();
-                        let __packet_field_slice =
-                            ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                        __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                        input = #ident.fill_slice(input);
                     }
                 }
             }
@@ -1139,7 +1148,7 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
             return quote! {
-                #ty::min_len()
+                <#ty>::MIN_LEN
             };
         }
 
@@ -1276,22 +1285,27 @@ impl FlatSerializeField {
 #[proc_macro_derive(FlatSerializable)]
 pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
     let input: syn::DeriveInput = syn::parse(input).unwrap();
-    let name = &input.ident;
+    let name = input.ident;
 
-    let s = match &input.data {
+    let s = match input.data {
         syn::Data::Enum(e) => {
-            let has_repr = input.attrs.iter()
-                .any(|attr| {
-                    let meta = match attr.parse_meta() {
-                        Ok(meta) => meta,
-                        _ => return false,
-                    };
-                    meta.path().get_ident().map_or(false, |id| id == "repr")
-                        && attr.parse_args().map_or(false, |ident: Ident|
-                            ident == "u8" || ident == "u16" || ident == "u32" || ident == "u64"
-                        )
-                });
-            if !has_repr {
+            let repr: Vec<_> = input.attrs.iter().flat_map(|attr| {
+                let meta = match attr.parse_meta() {
+                    Ok(meta) => meta,
+                    _ => return None,
+                };
+                let has_repr = meta.path().get_ident().map_or(false, |id| id == "repr");
+                if !has_repr {
+                    return None
+                }
+                attr.parse_args().ok().and_then(|ident: Ident| {
+                    if ident == "u8" || ident == "u16" || ident == "u32" || ident == "u64" {
+                        return Some(ident)
+                    }
+                    None
+                })
+            }).collect();
+            if repr.len() != 1 {
                 return quote_spanned! {e.enum_token.span()=>
                     compile_error!{"FlatSerializable only allowed on #[repr(u..)] enums without variants"}
                 }.into()
@@ -1302,7 +1316,57 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
                     compile_error!{"FlatSerializable only allowed on until enums"}
                 }.into()
             }
-            return quote!{unsafe impl FlatSerializable for #name {}}.into()
+
+            let variant = e.variants.iter().map(|v| &v.ident);
+            let variant2 = variant.clone();
+            let const_name = variant.clone();
+            let repr = &repr[0];
+
+            let out = quote!{
+                unsafe impl<'i> FlatSerializable<'i> for #name {
+                    const MIN_LEN: usize = std::mem::size_of::<Self>();
+                    const REQUIRED_ALIGNMENT: usize = std::mem::align_of::<Self>();
+                    const MAX_PROVIDED_ALIGNMENT: Option<usize> = None;
+                    const TRIVIAL_COPY: bool = true;
+
+                    #[inline(always)]
+                    unsafe fn try_ref(input: &'i [u8])
+                    -> Result<(Self, &'i [u8]), WrapErr> {
+                        let size = std::mem::size_of::<Self>();
+                        if input.len() < size {
+                            return Err(WrapErr::NotEnoughBytes(size))
+                        }
+                        let (field, rem) = input.split_at(size);
+                        let field = field.as_ptr().cast::<#repr>();
+                        #(
+                            const #const_name: #repr = #name::#variant2 as #repr;
+                        )*
+                        let field = field.read_unaligned();
+                        let field = match field {
+                            #(#variant => #name::#variant,)*
+                            _ => return Err(WrapErr::InvalidTag(0)),
+                        };
+                        Ok((field, rem))
+                    }
+
+                    #[inline(always)]
+                    unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>])
+                    -> &'out mut [MaybeUninit<u8>] {
+                        let size = std::mem::size_of::<Self>();
+                        let (input, rem) = input.split_at_mut(size);
+                        let bytes = (self as *const Self).cast::<MaybeUninit<u8>>();
+                        let bytes = std::slice::from_raw_parts(bytes, size);
+                        input.copy_from_slice(bytes);
+                        rem
+                    }
+
+                    #[inline(always)]
+                    fn len(&self) -> usize {
+                        std::mem::size_of::<Self>()
+                    }
+                }
+            };
+            return out.into();
         },
         syn::Data::Union(u) => return quote_spanned! {u.union_token.span()=>
             compile_error!("FlatSerializable not allowed on unions")
@@ -1311,35 +1375,50 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
 
     };
 
-    let alignment_checks = s.fields.iter().map(|f| {
-        let ty = &f.ty;
-        quote_spanned!{ty.span()=>
-            let _alignment = [()][size % align_of::<#ty>()];
-            let _internal_padding = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
-            size += size_of::<#ty>();
-        }
-    });
-    let trait_checks = s.fields.iter().map(|f| {
-        let ty = &f.ty;
-        return quote_spanned!{ty.span()=>
-            const _: () = {
-                fn trait_check<T: FlatSerializable>() {}
-                let _ = trait_check::<#ty>;
-            };
-        }
-    });
+    let s = FlatSerializeStruct {
+        per_field_attrs: Default::default(),
+        attrs: Default::default(),
+        ident: name.clone(),
+        lifetime: None,
+        fields: s.fields.into_iter().map(|f| FlatSerializeField {
+            field: f,
+            flatten: false,
+            length_info: None,
+        }).collect(),
+    };
+
+    let ident = &s.ident;
+    let alignment_check = s.alignment_check(quote!(0), quote!(8));
+    let trait_check = s.fn_trait_check();
+    let required_alignment = s.fn_required_alignment();
+    let max_provided_alignment = s.fn_max_provided_alignment();
+    let min_len = s.fn_min_len();
+
+    let try_ref = s.fn_try_ref(None);
+    let fill_slice = s.fn_fill_slice();
+    let len = s.fn_len();
 
     let out = quote! {
-        const _:() = {
-            use std::mem::{size_of, align_of};
-            let mut size = 0;
-            #(#alignment_checks)*
-            let _trailing_padding = [()][(size_of::<#name>() != size) as u8 as usize];
-        };
-        const _:() = {
-            #(#trait_checks)*
-        };
-        unsafe impl FlatSerializable for #name {}
+
+        #alignment_check
+
+        #trait_check
+
+        unsafe impl<'a> FlatSerializable<'a> for #ident {
+            #required_alignment
+
+            #max_provided_alignment
+
+            #min_len
+
+            const TRIVIAL_COPY: bool = true;
+
+            #try_ref
+
+            #fill_slice
+
+            #len
+        }
     };
     out.into()
 }

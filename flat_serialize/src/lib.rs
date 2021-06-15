@@ -1,4 +1,6 @@
 
+use std::{mem::{MaybeUninit, align_of, size_of}, slice};
+
 #[derive(Debug)]
 pub enum WrapErr {
     NotEnoughBytes(usize),
@@ -12,13 +14,80 @@ pub unsafe trait FlattenableRef<'a>: Sized + 'a {}
 /// For a type to be `FlatSerializable` it must contain no pointers, have no
 /// interior padding, must have a `size >= alignmen` and must have
 /// `size % align = 0`. Use `#[derive(FlatSerializable)]` to implement this.
-pub unsafe trait FlatSerializable: Sized {}
+pub unsafe trait FlatSerializable<'input>: Sized + 'input {
+    const MIN_LEN: usize;
+    const REQUIRED_ALIGNMENT: usize;
+    const MAX_PROVIDED_ALIGNMENT: Option<usize>;
+    const TRIVIAL_COPY: bool = false;
 
-#[macro_export]
+
+    unsafe fn try_ref(input: &'input [u8]) -> Result<(Self, &'input [u8]), WrapErr>;
+    fn fill_vec(&self, input: &mut Vec<u8>) {
+        let start = input.len();
+        let my_len = self.len();
+        input.reserve(my_len);
+        // simulate unstable spare_capacity_mut()
+        let slice = unsafe {
+            slice::from_raw_parts_mut(
+                input.as_mut_ptr().add(input.len()) as *mut MaybeUninit<u8>,
+                my_len,
+            )
+        };
+        let rem = unsafe {
+            self.fill_slice(slice)
+        };
+        debug_assert_eq!(rem.len(), 0);
+        unsafe {
+            input.set_len(start + my_len);
+        }
+    }
+    #[must_use]
+    unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>])
+    -> &'out mut [MaybeUninit<u8>];
+    fn len(&self) -> usize;
+}
+
 macro_rules! impl_flat_serializable {
     ($($typ:ty)+) => {
         $(
-            unsafe impl FlatSerializable for $typ {}
+            unsafe impl<'i> FlatSerializable<'i> for $typ {
+                const MIN_LEN: usize = size_of::<Self>();
+                const REQUIRED_ALIGNMENT: usize = align_of::<Self>();
+                const MAX_PROVIDED_ALIGNMENT: Option<usize> = None;
+                const TRIVIAL_COPY: bool = true;
+
+                #[inline(always)]
+                unsafe fn try_ref(input: &'i [u8])
+                -> Result<(Self, &'i [u8]), WrapErr> {
+                    let size = size_of::<Self>();
+                    if input.len() < size {
+                        return Err(WrapErr::NotEnoughBytes(size))
+                    }
+                    let (field, rem) = input.split_at(size);
+                    let field = field.as_ptr().cast::<Self>();
+                    Ok((field.read_unaligned(), rem))
+                }
+
+                #[inline(always)]
+                unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>])
+                -> &'out mut [MaybeUninit<u8>] {
+                    let size = size_of::<Self>();
+                    let (input, rem) = input.split_at_mut(size);
+                    let bytes = (self as *const Self).cast::<MaybeUninit<u8>>();
+                    let bytes = slice::from_raw_parts(bytes, size);
+                    // emulate write_slice_cloned()
+                    // for i in 0..size {
+                    //     input[i] = MaybeUninit::new(bytes[i])
+                    // }
+                    input.copy_from_slice(bytes);
+                    rem
+                }
+
+                #[inline(always)]
+                fn len(&self) -> usize {
+                    size_of::<Self>()
+                }
+            }
         )+
     };
 }
@@ -27,7 +96,58 @@ impl_flat_serializable!(bool);
 impl_flat_serializable!(i8 u8 i16 u16 i32 u32 i64 u64 i128 u128);
 impl_flat_serializable!(f32 f64 ordered_float::OrderedFloat<f32> ordered_float::OrderedFloat<f64>);
 
-unsafe impl<T: FlatSerializable, const N: usize> FlatSerializable for [T; N] {}
+// TODO ensure perf
+unsafe impl<'i, T, const N: usize> FlatSerializable<'i> for [T; N]
+where T: FlatSerializable<'i> + 'i {
+    const MIN_LEN: usize = {T::MIN_LEN * N};
+    const REQUIRED_ALIGNMENT: usize = T::REQUIRED_ALIGNMENT;
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = T::MAX_PROVIDED_ALIGNMENT;
+    const TRIVIAL_COPY: bool = T::TRIVIAL_COPY;
+
+    #[inline(always)]
+    unsafe fn try_ref(mut input: &'i [u8])
+    -> Result<(Self, &'i [u8]), WrapErr> {
+        // TODO can we simplify based on T::TRIVIAL_COPY?
+        if T::TRIVIAL_COPY {
+            if input.len() < (T::MIN_LEN * N) {
+                return Err(WrapErr::NotEnoughBytes(T::MIN_LEN * N))
+            }
+        }
+        let mut output: [MaybeUninit<T>; N] = MaybeUninit::uninit().assume_init();
+        for i in 0..N {
+            let (val, rem) = T::try_ref(input)?;
+            output[i] = MaybeUninit::new(val);
+            input = rem;
+        }
+        let output = (&output as * const [MaybeUninit<T>; N])
+            .cast::<[T; N]>().read();
+        Ok((output, input))
+    }
+
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>])
+    -> &'out mut [MaybeUninit<u8>] {
+        let size = if Self::TRIVIAL_COPY {
+            Self::MIN_LEN
+        } else {
+            self.len()
+        };
+        let (mut input, rem) = input.split_at_mut(size);
+        input = &mut input[..size];
+        // TODO is there a way to force a memcopy for trivial cases?
+
+        for val in self {
+            input = val.fill_slice(input);
+        }
+        debug_assert_eq!(input.len(), 0);
+        rem
+    }
+
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.iter().map(T::len).sum()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -101,9 +221,17 @@ mod tests {
         );
         assert_eq!(debug, "Basic { header: 33, data_len: 6, array: [202, 404, 555], data: [1, 3, 5, 7, 9, 11], data2: [4, 4, 4] }");
 
-        assert_eq!(Basic::min_len(), 18);
-        assert_eq!(Basic::required_alignment(), 8);
-        assert_eq!(Basic::max_provided_alignment(), Some(1));
+        assert_eq!(Basic::MIN_LEN, 18);
+        assert_eq!(Basic::REQUIRED_ALIGNMENT, 8);
+        assert_eq!(Basic::MAX_PROVIDED_ALIGNMENT, Some(1));
+        assert_eq!(Basic::TRIVIAL_COPY, false);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                Basic::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
     }
 
     #[test]
@@ -181,6 +309,13 @@ mod tests {
         }
         .fill_vec(&mut output);
         assert_eq!(output, bytes);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                Optional::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
     }
 
     #[test]
@@ -214,9 +349,17 @@ mod tests {
         }
         .fill_vec(&mut output);
         assert_eq!(output, bytes);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                Optional::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
     }
 
     flat_serialize! {
+        #[derive(Debug)]
         struct Nested<'a> {
             prefix: u64,
             #[flat_serialize::flatten]
@@ -275,9 +418,17 @@ mod tests {
         }
         .fill_vec(&mut output);
         assert_eq!(output, bytes);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                Nested::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
     }
 
     flat_serialize! {
+        #[derive(Debug)]
         enum BasicEnum<'input> {
             k: u64,
             First: 2 {
@@ -308,6 +459,13 @@ mod tests {
         let mut output = vec![];
         BasicEnum::First { data_len, data }.fill_vec(&mut output);
         assert_eq!(output, bytes);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                BasicEnum::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
     }
 
     #[test]
@@ -333,11 +491,19 @@ mod tests {
         let mut output = vec![];
         BasicEnum::Fixed { array }.fill_vec(&mut output);
         assert_eq!(output, &bytes[..bytes.len() - 1]);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                BasicEnum::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
     }
 
 
 
     flat_serialize! {
+        #[derive(Debug)]
         enum PaddedEnum<'input> {
             k: u8,
             First: 2 {
@@ -371,6 +537,13 @@ mod tests {
         let mut output = vec![];
         PaddedEnum::First { padding, data_len, data }.fill_vec(&mut output);
         assert_eq!(output, bytes);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                PaddedEnum::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
     }
 
     #[test]
@@ -397,6 +570,13 @@ mod tests {
         let mut output = vec![];
         PaddedEnum::Fixed { padding, array }.fill_vec(&mut output);
         assert_eq!(output, &bytes[..bytes.len() - 1]);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                PaddedEnum::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
     }
 
 
@@ -485,9 +665,10 @@ mod tests {
                         $($(#[$attrs])* $field: $typ $(<$life>)?),*
                     }
                 };
-                assert_eq!(SizeAlignTest::min_len(), $min_len, "length");
-                assert_eq!(SizeAlignTest::required_alignment(), $required_alignment, "required");
-                assert_eq!(SizeAlignTest::max_provided_alignment(), $max_provided_alignment, "max provided");
+                assert_eq!(SizeAlignTest::MIN_LEN, $min_len, "length");
+                assert_eq!(SizeAlignTest::REQUIRED_ALIGNMENT, $required_alignment, "required");
+                assert_eq!(SizeAlignTest::MAX_PROVIDED_ALIGNMENT, $max_provided_alignment, "max provided");
+                assert_eq!(SizeAlignTest::TRIVIAL_COPY, false, "trivial copy");
             }
         }
     }
@@ -877,28 +1058,127 @@ mod tests {
 
     #[derive(FlatSerializable)]
     #[allow(dead_code)]
+    #[derive(Debug)]
     struct Foo {
         a: i32,
         b: i32,
     }
 
     const _:() = {
-        fn check_flat_serializable_impl<T: FlatSerializable>() {}
+        fn check_flat_serializable_impl<'a, T: FlatSerializable<'a>>() {}
         let _ = check_flat_serializable_impl::<Foo>;
         let _ = check_flat_serializable_impl::<[Foo; 2]>;
     };
 
+    #[test]
+    fn foo() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&33i32.to_ne_bytes());
+        bytes.extend_from_slice(&100000001i32.to_ne_bytes());
+
+        let (Foo {a, b}, rem) = unsafe {
+            Foo::try_ref(&bytes).unwrap()
+        };
+        assert_eq!(
+            (a, b, rem),
+            (33, 100000001, &[][..]),
+        );
+
+        let mut output = vec![];
+        Foo { a, b }.fill_vec(&mut output);
+        assert_eq!(output, bytes);
+
+        assert_eq!(Foo::MIN_LEN, 8);
+        assert_eq!(Foo::REQUIRED_ALIGNMENT, 4);
+        assert_eq!(Foo::MAX_PROVIDED_ALIGNMENT, None);
+        assert_eq!(Foo::TRIVIAL_COPY, true);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                Foo::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
+    }
+
     #[derive(FlatSerializable)]
     #[allow(dead_code)]
-    #[repr(u8)]
+    #[repr(u16)]
+    #[derive(Debug, Copy, Clone)]
     enum Bar {
-        A,
-        B,
+        A = 0,
+        B = 1111,
     }
 
     const _:() = {
-        fn check_flat_serializable_impl<T: FlatSerializable>() {}
+        fn check_flat_serializable_impl<'a, T: FlatSerializable<'a>>() {}
         let _ = check_flat_serializable_impl::<Bar>;
         let _ = check_flat_serializable_impl::<[Bar; 2]>;
     };
+
+    #[test]
+    fn fs_enum_a() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0u16.to_ne_bytes());
+
+        let (
+            val,
+            rem,
+        ) = unsafe { Bar::try_ref(&bytes).unwrap() };
+        assert_eq!(
+            (val as u16, rem),
+            (Bar::A as u16, &[][..])
+        );
+
+        let mut output = vec![];
+        val.fill_vec(&mut output);
+        assert_eq!(output, bytes);
+
+        assert_eq!(Bar::MIN_LEN, 2);
+        assert_eq!(Bar::REQUIRED_ALIGNMENT, 2);
+        assert_eq!(Bar::MAX_PROVIDED_ALIGNMENT, None);
+        assert_eq!(Bar::TRIVIAL_COPY, true);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                Bar::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
+    }
+
+    #[test]
+    fn fs_enum_b() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1111u16.to_ne_bytes());
+
+        let (
+            val,
+            rem,
+        ) = unsafe { Bar::try_ref(&bytes).unwrap() };
+        assert_eq!(
+            (val as u16, rem),
+            (Bar::B as u16, &[][..])
+        );
+
+        let mut output = vec![];
+        val.fill_vec(&mut output);
+        assert_eq!(output, bytes);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                Bar::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
+    }
+
+    #[test]
+    fn fs_enum_non() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_ne_bytes());
+
+        let res= unsafe { Bar::try_ref(&bytes) };
+        assert!(matches!(res, Err(WrapErr::InvalidTag(0))));
+    }
 }

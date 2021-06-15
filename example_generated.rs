@@ -32,19 +32,19 @@ const _: () = {
     let _padding_check: () = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
 };
 const _: () = {
-    fn header<T: FlatSerializable>() {}
+    fn header<'i, T: FlatSerializable<'i>>() {}
     let _ = header::<u64>;
-    fn data_len<T: FlatSerializable>() {}
+    fn data_len<'i, T: FlatSerializable<'i>>() {}
     let _ = data_len::<u32>;
-    fn array<T: FlatSerializable>() {}
+    fn array<'i, T: FlatSerializable<'i>>() {}
     let _ = array::<[u16; 3]>;
-    fn data<T: FlatSerializable>() {}
+    fn data<'i, T: FlatSerializable<'i>>() {}
     let _ = data::<u8>;
-    fn data2<T: FlatSerializable>() {}
+    fn data2<'i, T: FlatSerializable<'i>>() {}
     let _ = data2::<u8>;
 };
-impl<'input> Basic<'input> {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
         let alignment = align_of::<u64>();
@@ -68,8 +68,8 @@ impl<'input> Basic<'input> {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
         match (Some(align_of::<u8>()), min_align) {
@@ -84,23 +84,23 @@ impl<'input> Basic<'input> {
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        let min_align = match min_align {
-            None => return None,
-            Some(min_align) => min_align,
-        };
-        let min_size = Self::min_len();
-        if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+        match min_align {
+            None => None,
+            Some(min_align) => {
+                let min_size = Self::MIN_LEN;
+                if min_size % 8 == 0 && min_align >= 8 {
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
+                }
+            }
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
         size += size_of::<u64>();
@@ -109,12 +109,14 @@ impl<'input> Basic<'input> {
         size += 0;
         size += 0;
         size
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(
-        mut __packet_macro_bytes: &'input [u8],
-    ) -> Result<(Self, &'input [u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &'input [u8]) -> Result<(Self, &'input [u8]), WrapErr> {
+        if input.len() < Self::MIN_LEN {
+            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+        }
         let __packet_macro_read_len = 0usize;
         let mut header: Option<u64> = None;
         let mut data_len: Option<u32> = None;
@@ -122,94 +124,73 @@ impl<'input> Basic<'input> {
         let mut data: Option<&[u8]> = None;
         let mut data2: Option<&[u8]> = None;
         'tryref: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<u64>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
+            {
+                let (field, rem) = match <u64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                header = Some(field);
+            }
+            {
+                let (field, rem) = match <u32>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                data_len = Some(field);
+            }
+            {
+                let (field, rem) = match <[u16; 3]>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                array = Some(field);
+            }
+            {
+                const _: () = [()][(!<u8>::TRIVIAL_COPY) as u8 as usize];
+                let count = (data_len.clone().unwrap()) as usize;
+                let byte_len = <u8>::MIN_LEN * count;
+                if input.len() < byte_len {
+                    return Err(WrapErr::NotEnoughBytes(byte_len));
                 }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u64 = __packet_macro_field.as_ptr().cast::<u64>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                header = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<u32>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u32 = __packet_macro_field.as_ptr().cast::<u32>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                data_len = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<[u16; 3]>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const [u16; 3] =
-                    __packet_macro_field.as_ptr().cast::<[u16; 3]>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                array = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_count = (data_len.clone().unwrap()) as usize;
-                let __packet_macro_size = ::std::mem::size_of::<u8>() * __packet_macro_count;
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field_bytes, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
-                let __packet_macro_field = ::std::slice::from_raw_parts(
-                    __packet_macro_field_ptr.cast::<u8>(),
-                    __packet_macro_count,
-                );
+                let (bytes, rem) = input.split_at(byte_len);
+                let bytes = bytes.as_ptr();
+                let field = ::std::slice::from_raw_parts(bytes.cast::<u8>(), count);
                 debug_assert_eq!(
-                    __packet_macro_field_ptr.offset(__packet_macro_size as isize) as usize,
-                    __packet_macro_field
-                        .as_ptr()
-                        .offset(__packet_macro_count as isize) as usize
+                    bytes.offset(byte_len as isize) as usize,
+                    field.as_ptr().offset(count as isize) as usize
                 );
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                data = Some(__packet_macro_field);
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_count = (data_len.clone().unwrap() / 2) as usize;
-                let __packet_macro_size = ::std::mem::size_of::<u8>() * __packet_macro_count;
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
+                input = rem;
+                data = Some(field);
+            }
+            {
+                const _: () = [()][(!<u8>::TRIVIAL_COPY) as u8 as usize];
+                let count = (data_len.clone().unwrap() / 2) as usize;
+                let byte_len = <u8>::MIN_LEN * count;
+                if input.len() < byte_len {
+                    return Err(WrapErr::NotEnoughBytes(byte_len));
                 }
-                let (__packet_macro_field_bytes, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
-                let __packet_macro_field = ::std::slice::from_raw_parts(
-                    __packet_macro_field_ptr.cast::<u8>(),
-                    __packet_macro_count,
-                );
+                let (bytes, rem) = input.split_at(byte_len);
+                let bytes = bytes.as_ptr();
+                let field = ::std::slice::from_raw_parts(bytes.cast::<u8>(), count);
                 debug_assert_eq!(
-                    __packet_macro_field_ptr.offset(__packet_macro_size as isize) as usize,
-                    __packet_macro_field
-                        .as_ptr()
-                        .offset(__packet_macro_count as isize) as usize
+                    bytes.offset(byte_len as isize) as usize,
+                    field.as_ptr().offset(count as isize) as usize
                 );
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                data2 = Some(__packet_macro_field);
-                __packet_macro_read_len
-            };
+                input = rem;
+                data2 = Some(field);
+            }
             let _ref = Basic {
                 header: header.unwrap(),
                 data_len: data_len.unwrap(),
@@ -217,7 +198,7 @@ impl<'input> Basic<'input> {
                 data: data.unwrap(),
                 data2: data2.unwrap(),
             };
-            return Ok((_ref, __packet_macro_bytes));
+            return Ok((_ref, input));
         }
         Err(WrapErr::NotEnoughBytes(
             0 + ::std::mem::size_of::<u64>()
@@ -240,8 +221,13 @@ impl<'input> Basic<'input> {
         ))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         let &Basic {
             header,
             data_len,
@@ -250,50 +236,52 @@ impl<'input> Basic<'input> {
             data2,
         } = self;
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<u64>();
-            let __packet_field_bytes: &u64 = &header;
-            let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = header.fill_slice(input);
         };
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<u32>();
-            let __packet_field_bytes: &u32 = &data_len;
-            let __packet_field_bytes = (__packet_field_bytes as *const u32).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = data_len.fill_slice(input);
         };
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<[u16; 3]>();
-            let __packet_field_bytes: &[u16; 3] = &array;
-            let __packet_field_bytes = (__packet_field_bytes as *const [u16; 3]).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = array.fill_slice(input);
         };
         unsafe {
-            let __packet_field_count = (data_len) as usize;
-            let data = &data[..__packet_field_count];
-            let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
-            let __packet_field_field_bytes = data.as_ptr().cast::<u8>();
-            let __packet_field_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+            let count = (data_len) as usize;
+            let data = &data[..count];
+            if <u8>::TRIVIAL_COPY {
+                let size = <u8>::MIN_LEN * count;
+                let (out, rem) = input.split_at_mut(size);
+                let bytes = (data.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                let bytes = std::slice::from_raw_parts(bytes, size);
+                out.copy_from_slice(bytes);
+                input = rem;
+            } else {
+                for data in data {
+                    input = data.fill_slice(input);
+                }
+            }
         };
         unsafe {
-            let __packet_field_count = ((data_len) / 2) as usize;
-            let data2 = &data2[..__packet_field_count];
-            let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
-            let __packet_field_field_bytes = data2.as_ptr().cast::<u8>();
-            let __packet_field_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+            let count = ((data_len) / 2) as usize;
+            let data2 = &data2[..count];
+            if <u8>::TRIVIAL_COPY {
+                let size = <u8>::MIN_LEN * count;
+                let (out, rem) = input.split_at_mut(size);
+                let bytes = (data2.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                let bytes = std::slice::from_raw_parts(bytes, size);
+                out.copy_from_slice(bytes);
+                input = rem;
+            } else {
+                for data2 in data2 {
+                    input = data2.fill_slice(input);
+                }
+            }
         }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    #[inline(always)]
+    fn len(&self) -> usize {
         let &Basic {
             header,
             data_len,
@@ -334,15 +322,15 @@ const _: () = {
     let _padding_check = [()][(size_of::<u16>() < align_of::<u16>()) as u8 as usize];
 };
 const _: () = {
-    fn header<T: FlatSerializable>() {}
+    fn header<'i, T: FlatSerializable<'i>>() {}
     let _ = header::<u64>;
-    fn optional_field<T: FlatSerializable>() {}
+    fn optional_field<'i, T: FlatSerializable<'i>>() {}
     let _ = optional_field::<u32>;
-    fn non_optional_field<T: FlatSerializable>() {}
+    fn non_optional_field<'i, T: FlatSerializable<'i>>() {}
     let _ = non_optional_field::<u16>;
 };
-impl Optional {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'a> FlatSerializable<'a> for Optional {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
         let alignment = align_of::<u64>();
@@ -358,8 +346,8 @@ impl Optional {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
         match (Some(align_of::<u32>()), min_align) {
@@ -368,85 +356,81 @@ impl Optional {
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        let min_align = match min_align {
-            None => return None,
-            Some(min_align) => min_align,
-        };
-        let min_size = Self::min_len();
-        if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+        match min_align {
+            None => None,
+            Some(min_align) => {
+                let min_size = Self::MIN_LEN;
+                if min_size % 8 == 0 && min_align >= 8 {
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
+                }
+            }
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
         size += size_of::<u64>();
         size += 0;
         size += size_of::<u16>();
         size
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+        if input.len() < Self::MIN_LEN {
+            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+        }
         let __packet_macro_read_len = 0usize;
         let mut header: Option<u64> = None;
         let mut optional_field: Option<u32> = None;
         let mut non_optional_field: Option<u16> = None;
         'tryref: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<u64>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u64 = __packet_macro_field.as_ptr().cast::<u64>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                header = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = if header.clone().unwrap() != 1 {
-                let __packet_macro_size = ::std::mem::size_of::<u32>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u32 = __packet_macro_field.as_ptr().cast::<u32>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                optional_field = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            } else {
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<u16>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u16 = __packet_macro_field.as_ptr().cast::<u16>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                non_optional_field = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
+            {
+                let (field, rem) = match <u64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                header = Some(field);
+            }
+            if header.clone().unwrap() != 1 {
+                let (field, rem) = match <u32>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                optional_field = Some(field);
+            }
+            {
+                let (field, rem) = match <u16>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                non_optional_field = Some(field);
+            }
             let _ref = Optional {
                 header: header.unwrap(),
                 optional_field: optional_field,
                 non_optional_field: non_optional_field.unwrap(),
             };
-            return Ok((_ref, __packet_macro_bytes));
+            return Ok((_ref, input));
         }
         Err(WrapErr::NotEnoughBytes(
             0 + ::std::mem::size_of::<u64>()
@@ -465,43 +449,36 @@ impl Optional {
         ))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         let &Optional {
             header,
             optional_field,
             non_optional_field,
         } = self;
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<u64>();
-            let __packet_field_bytes: &u64 = &header;
-            let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = header.fill_slice(input);
         };
         unsafe {
             if (header) != 1 {
                 let optional_field: &u32 = optional_field.as_ref().unwrap();
-                let __packet_field_size = ::std::mem::size_of::<u32>();
-                let __packet_field_field_bytes =
-                    (optional_field as *const u32).cast::<u32>().cast::<u8>();
-                let __packet_field_field_slice =
-                    ::std::slice::from_raw_parts(__packet_field_field_bytes, __packet_field_size);
-                __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+                input = optional_field.fill_slice(input);
             }
         };
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<u16>();
-            let __packet_field_bytes: &u16 = &non_optional_field;
-            let __packet_field_bytes = (__packet_field_bytes as *const u16).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = non_optional_field.fill_slice(input);
         }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    #[inline(always)]
+    fn len(&self) -> usize {
         let &Optional {
             header,
             optional_field,
@@ -518,7 +495,7 @@ impl Optional {
     }
 }
 unsafe impl<'a> FlattenableRef<'a> for Optional {}
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Nested<'a> {
     pub prefix: u64,
     pub basic: Basic<'a>,
@@ -528,129 +505,131 @@ const _: () = {
     let _alignment_check = [()][(0) % align_of::<u64>()];
     let _alignment_check2 = [()][(align_of::<u64>() > 8) as u8 as usize];
     let _padding_check = [()][(size_of::<u64>() < align_of::<u64>()) as u8 as usize];
-    let _alignment_check: () = [()][(0 + size_of::<u64>()) % Basic::required_alignment()];
-    let _alignment_check2: () = [()][(Basic::required_alignment() > 8) as u8 as usize];
+    let _alignment_check: () = [()][(0 + size_of::<u64>()) % <Basic>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<Basic>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
 };
 const _: () = {
-    fn prefix<T: FlatSerializable>() {}
+    fn prefix<'i, T: FlatSerializable<'i>>() {}
     let _ = prefix::<u64>;
-    fn basic<'a, T: FlattenableRef<'a>>() {}
+    fn basic<'test, T: FlattenableRef<'test>>() {}
     let _ = basic::<Basic<'static>>;
 };
-impl<'a> Nested<'a> {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
         let alignment = align_of::<u64>();
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = Basic::required_alignment();
+        let alignment = <Basic>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (Basic::max_provided_alignment(), min_align) {
+        match (<Basic>::MAX_PROVIDED_ALIGNMENT, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        let min_align = match min_align {
-            None => return None,
-            Some(min_align) => min_align,
-        };
-        let min_size = Self::min_len();
-        if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+        match min_align {
+            None => None,
+            Some(min_align) => {
+                let min_size = Self::MIN_LEN;
+                if min_size % 8 == 0 && min_align >= 8 {
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
+                }
+            }
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
         size += size_of::<u64>();
-        size += Basic::min_len();
+        size += <Basic>::MIN_LEN;
         size
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+        if input.len() < Self::MIN_LEN {
+            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+        }
         let __packet_macro_read_len = 0usize;
         let mut prefix: Option<u64> = None;
         let mut basic: Option<Basic<'a>> = None;
         'tryref: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<u64>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u64 = __packet_macro_field.as_ptr().cast::<u64>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                prefix = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = {
-                let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    match Basic::try_ref(__packet_macro_bytes) {
-                        Ok((f, b)) => (f, b),
-                        Err(WrapErr::InvalidTag(offset)) => {
-                            return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
-                        }
-                        Err(..) => break 'tryref,
-                    };
-                let __packet_macro_size =
-                    __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                basic = Some(__packet_macro_field);
-                __packet_macro_read_len + __packet_macro_size
-            };
+            {
+                let (field, rem) = match <u64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                prefix = Some(field);
+            }
+            {
+                let (field, rem) = match <Basic>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                basic = Some(field);
+            }
             let _ref = Nested {
                 prefix: prefix.unwrap(),
                 basic: basic.unwrap(),
             };
-            return Ok((_ref, __packet_macro_bytes));
+            return Ok((_ref, input));
         }
         Err(WrapErr::NotEnoughBytes(
-            0 + ::std::mem::size_of::<u64>() + Basic::min_len(),
+            0 + ::std::mem::size_of::<u64>() + <Basic>::MIN_LEN,
         ))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         let &Nested { prefix, basic } = self;
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<u64>();
-            let __packet_field_bytes: &u64 = &prefix;
-            let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = prefix.fill_slice(input);
         };
-        basic.fill_vec(__packet_macro_bytes);
+        unsafe {
+            input = basic.fill_slice(input);
+        }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    #[inline(always)]
+    fn len(&self) -> usize {
         let &Nested { prefix, basic } = self;
         0usize + ::std::mem::size_of::<u64>() + basic.len()
     }
 }
 unsafe impl<'a> FlattenableRef<'a> for Nested<'a> {}
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum BasicEnum<'input> {
     First { data_len: u32, data: &'input [u8] },
     Fixed { array: [u16; 3] },
@@ -685,25 +664,25 @@ const _: () = {
     }
 };
 const _: () = {
-    fn k<T: FlatSerializable>() {}
+    fn k<'i, T: FlatSerializable<'i>>() {}
     let _ = k::<u64>;
     const _: () = {
         const _: () = {
-            fn data_len<T: FlatSerializable>() {}
+            fn data_len<'i, T: FlatSerializable<'i>>() {}
             let _ = data_len::<u32>;
-            fn data<T: FlatSerializable>() {}
+            fn data<'i, T: FlatSerializable<'i>>() {}
             let _ = data::<u8>;
         };
     };
     const _: () = {
         const _: () = {
-            fn array<T: FlatSerializable>() {}
+            fn array<'i, T: FlatSerializable<'i>>() {}
             let _ = array::<[u16; 3]>;
         };
     };
 };
-impl<'input> BasicEnum<'input> {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<u64>();
         let alignment: usize = {
@@ -733,8 +712,8 @@ impl<'input> BasicEnum<'input> {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::{align_of, size_of};
         let mut min_align: usize = match Some(8) {
             None => 8,
@@ -787,19 +766,18 @@ impl<'input> BasicEnum<'input> {
         if variant_alignment < min_align {
             min_align = variant_alignment
         }
-        let min_size = Self::min_len();
+        let min_size = Self::MIN_LEN;
         if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+            Some(8)
+        } else if min_size % 4 == 0 && min_align >= 4 {
+            Some(4)
+        } else if min_size % 2 == 0 && min_align >= 2 {
+            Some(2)
+        } else {
+            Some(1)
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size: Option<usize> = None;
         let variant_size = {
@@ -823,85 +801,69 @@ impl<'input> BasicEnum<'input> {
             Some(size) if size > variant_size => Some(variant_size),
             Some(size) => Some(size),
         };
-        if let Some(size) = size {
-            return size;
+        match size {
+            Some(size) => size,
+            None => size_of::<u64>(),
         }
-        size_of::<u64>()
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(
-        mut __packet_macro_bytes: &'input [u8],
-    ) -> Result<(Self, &'input [u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &'input [u8]) -> Result<(Self, &'input [u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut k = None;
         'tryref_tag: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<u64>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref_tag;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u64 = __packet_macro_field.as_ptr().cast::<u64>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                k = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
+            {
+                let (field, rem) = match <u64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref_tag,
+                };
+                input = rem;
+                k = Some(field);
             };
             match k {
                 Some(2) => {
                     let mut data_len: Option<u32> = None;
                     let mut data: Option<&[u8]> = None;
                     'tryref_0: loop {
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_size = ::std::mem::size_of::<u32>();
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_0;
+                        {
+                            let (field, rem) = match <u32>::try_ref(input) {
+                                Ok((f, b)) => (f, b),
+                                Err(WrapErr::InvalidTag(offset)) => {
+                                    return Err(WrapErr::InvalidTag(
+                                        __packet_macro_read_len + offset,
+                                    ))
+                                }
+                                Err(..) => break 'tryref_0,
+                            };
+                            input = rem;
+                            data_len = Some(field);
+                        }
+                        {
+                            const _: () = [()][(!<u8>::TRIVIAL_COPY) as u8 as usize];
+                            let count = (data_len.clone().unwrap()) as usize;
+                            let byte_len = <u8>::MIN_LEN * count;
+                            if input.len() < byte_len {
+                                return Err(WrapErr::NotEnoughBytes(byte_len));
                             }
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: *const u32 =
-                                __packet_macro_field.as_ptr().cast::<u32>();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            data_len = Some(__packet_macro_field.read_unaligned());
-                            __packet_macro_read_len
-                        };
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_count = (data_len.clone().unwrap()) as usize;
-                            let __packet_macro_size =
-                                ::std::mem::size_of::<u8>() * __packet_macro_count;
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_0;
-                            }
-                            let (__packet_macro_field_bytes, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
-                            let __packet_macro_field = ::std::slice::from_raw_parts(
-                                __packet_macro_field_ptr.cast::<u8>(),
-                                __packet_macro_count,
-                            );
+                            let (bytes, rem) = input.split_at(byte_len);
+                            let bytes = bytes.as_ptr();
+                            let field = ::std::slice::from_raw_parts(bytes.cast::<u8>(), count);
                             debug_assert_eq!(
-                                __packet_macro_field_ptr.offset(__packet_macro_size as isize)
-                                    as usize,
-                                __packet_macro_field
-                                    .as_ptr()
-                                    .offset(__packet_macro_count as isize)
-                                    as usize
+                                bytes.offset(byte_len as isize) as usize,
+                                field.as_ptr().offset(count as isize) as usize
                             );
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            data = Some(__packet_macro_field);
-                            __packet_macro_read_len
-                        };
+                            input = rem;
+                            data = Some(field);
+                        }
                         let _ref = BasicEnum::First {
                             data_len: data_len.unwrap(),
                             data: data.unwrap(),
                         };
-                        return Ok((_ref, __packet_macro_bytes));
+                        return Ok((_ref, input));
                     }
                     return Err(WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u64>()
@@ -918,25 +880,23 @@ impl<'input> BasicEnum<'input> {
                 Some(3) => {
                     let mut array: Option<[u16; 3]> = None;
                     'tryref_1: loop {
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_size = ::std::mem::size_of::<[u16; 3]>();
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_1;
-                            }
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: *const [u16; 3] =
-                                __packet_macro_field.as_ptr().cast::<[u16; 3]>();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            array = Some(__packet_macro_field.read_unaligned());
-                            __packet_macro_read_len
-                        };
+                        {
+                            let (field, rem) = match <[u16; 3]>::try_ref(input) {
+                                Ok((f, b)) => (f, b),
+                                Err(WrapErr::InvalidTag(offset)) => {
+                                    return Err(WrapErr::InvalidTag(
+                                        __packet_macro_read_len + offset,
+                                    ))
+                                }
+                                Err(..) => break 'tryref_1,
+                            };
+                            input = rem;
+                            array = Some(field);
+                        }
                         let _ref = BasicEnum::Fixed {
                             array: array.unwrap(),
                         };
-                        return Ok((_ref, __packet_macro_bytes));
+                        return Ok((_ref, input));
                     }
                     return Err(WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u64>() + ::std::mem::size_of::<[u16; 3]>(),
@@ -948,63 +908,53 @@ impl<'input> BasicEnum<'input> {
         Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<u64>()))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         match self {
             &BasicEnum::First { data_len, data } => {
                 let k: &u64 = &2;
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<u64>();
-                    let __packet_field_bytes: &u64 = &k;
-                    let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = k.fill_slice(input);
                 }
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<u32>();
-                    let __packet_field_bytes: &u32 = &data_len;
-                    let __packet_field_bytes = (__packet_field_bytes as *const u32).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = data_len.fill_slice(input);
                 };
                 unsafe {
-                    let __packet_field_count = (data_len) as usize;
-                    let data = &data[..__packet_field_count];
-                    let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
-                    let __packet_field_field_bytes = data.as_ptr().cast::<u8>();
-                    let __packet_field_field_slice = ::std::slice::from_raw_parts(
-                        __packet_field_field_bytes,
-                        __packet_field_size,
-                    );
-                    __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+                    let count = (data_len) as usize;
+                    let data = &data[..count];
+                    if <u8>::TRIVIAL_COPY {
+                        let size = <u8>::MIN_LEN * count;
+                        let (out, rem) = input.split_at_mut(size);
+                        let bytes = (data.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                        let bytes = std::slice::from_raw_parts(bytes, size);
+                        out.copy_from_slice(bytes);
+                        input = rem;
+                    } else {
+                        for data in data {
+                            input = data.fill_slice(input);
+                        }
+                    }
                 }
             }
             &BasicEnum::Fixed { array } => {
                 let k: &u64 = &3;
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<u64>();
-                    let __packet_field_bytes: &u64 = &k;
-                    let __packet_field_bytes = (__packet_field_bytes as *const u64).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = k.fill_slice(input);
                 }
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<[u16; 3]>();
-                    let __packet_field_bytes: &[u16; 3] = &array;
-                    let __packet_field_bytes =
-                        (__packet_field_bytes as *const [u16; 3]).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = array.fill_slice(input);
                 }
             }
         }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         match self {
             &BasicEnum::First { data_len, data } => {
                 ::std::mem::size_of::<u64>()
@@ -1018,7 +968,7 @@ impl<'input> BasicEnum<'input> {
     }
 }
 unsafe impl<'input> FlattenableRef<'input> for BasicEnum<'input> {}
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum PaddedEnum<'input> {
     First {
         padding: [u8; 3],
@@ -1068,29 +1018,29 @@ const _: () = {
     }
 };
 const _: () = {
-    fn k<T: FlatSerializable>() {}
+    fn k<'i, T: FlatSerializable<'i>>() {}
     let _ = k::<u8>;
     const _: () = {
         const _: () = {
-            fn padding<T: FlatSerializable>() {}
+            fn padding<'i, T: FlatSerializable<'i>>() {}
             let _ = padding::<[u8; 3]>;
-            fn data_len<T: FlatSerializable>() {}
+            fn data_len<'i, T: FlatSerializable<'i>>() {}
             let _ = data_len::<u32>;
-            fn data<T: FlatSerializable>() {}
+            fn data<'i, T: FlatSerializable<'i>>() {}
             let _ = data::<u8>;
         };
     };
     const _: () = {
         const _: () = {
-            fn padding<T: FlatSerializable>() {}
+            fn padding<'i, T: FlatSerializable<'i>>() {}
             let _ = padding::<u8>;
-            fn array<T: FlatSerializable>() {}
+            fn array<'i, T: FlatSerializable<'i>>() {}
             let _ = array::<[u16; 3]>;
         };
     };
 };
-impl<'input> PaddedEnum<'input> {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<u8>();
         let alignment: usize = {
@@ -1128,8 +1078,8 @@ impl<'input> PaddedEnum<'input> {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::{align_of, size_of};
         let mut min_align: usize = match Some(8) {
             None => 8,
@@ -1182,19 +1132,18 @@ impl<'input> PaddedEnum<'input> {
         if variant_alignment < min_align {
             min_align = variant_alignment
         }
-        let min_size = Self::min_len();
+        let min_size = Self::MIN_LEN;
         if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+            Some(8)
+        } else if min_size % 4 == 0 && min_align >= 4 {
+            Some(4)
+        } else if min_size % 2 == 0 && min_align >= 2 {
+            Some(2)
+        } else {
+            Some(1)
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size: Option<usize> = None;
         let variant_size = {
@@ -1220,31 +1169,28 @@ impl<'input> PaddedEnum<'input> {
             Some(size) if size > variant_size => Some(variant_size),
             Some(size) => Some(size),
         };
-        if let Some(size) = size {
-            return size;
+        match size {
+            Some(size) => size,
+            None => size_of::<u8>(),
         }
-        size_of::<u8>()
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(
-        mut __packet_macro_bytes: &'input [u8],
-    ) -> Result<(Self, &'input [u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &'input [u8]) -> Result<(Self, &'input [u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut k = None;
         'tryref_tag: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<u8>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref_tag;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u8 = __packet_macro_field.as_ptr().cast::<u8>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                k = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
+            {
+                let (field, rem) = match <u8>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref_tag,
+                };
+                input = rem;
+                k = Some(field);
             };
             match k {
                 Some(2) => {
@@ -1252,70 +1198,55 @@ impl<'input> PaddedEnum<'input> {
                     let mut data_len: Option<u32> = None;
                     let mut data: Option<&[u8]> = None;
                     'tryref_0: loop {
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_size = ::std::mem::size_of::<[u8; 3]>();
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_0;
+                        {
+                            let (field, rem) = match <[u8; 3]>::try_ref(input) {
+                                Ok((f, b)) => (f, b),
+                                Err(WrapErr::InvalidTag(offset)) => {
+                                    return Err(WrapErr::InvalidTag(
+                                        __packet_macro_read_len + offset,
+                                    ))
+                                }
+                                Err(..) => break 'tryref_0,
+                            };
+                            input = rem;
+                            padding = Some(field);
+                        }
+                        {
+                            let (field, rem) = match <u32>::try_ref(input) {
+                                Ok((f, b)) => (f, b),
+                                Err(WrapErr::InvalidTag(offset)) => {
+                                    return Err(WrapErr::InvalidTag(
+                                        __packet_macro_read_len + offset,
+                                    ))
+                                }
+                                Err(..) => break 'tryref_0,
+                            };
+                            input = rem;
+                            data_len = Some(field);
+                        }
+                        {
+                            const _: () = [()][(!<u8>::TRIVIAL_COPY) as u8 as usize];
+                            let count = (data_len.clone().unwrap()) as usize;
+                            let byte_len = <u8>::MIN_LEN * count;
+                            if input.len() < byte_len {
+                                return Err(WrapErr::NotEnoughBytes(byte_len));
                             }
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: *const [u8; 3] =
-                                __packet_macro_field.as_ptr().cast::<[u8; 3]>();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            padding = Some(__packet_macro_field.read_unaligned());
-                            __packet_macro_read_len
-                        };
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_size = ::std::mem::size_of::<u32>();
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_0;
-                            }
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: *const u32 =
-                                __packet_macro_field.as_ptr().cast::<u32>();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            data_len = Some(__packet_macro_field.read_unaligned());
-                            __packet_macro_read_len
-                        };
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_count = (data_len.clone().unwrap()) as usize;
-                            let __packet_macro_size =
-                                ::std::mem::size_of::<u8>() * __packet_macro_count;
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_0;
-                            }
-                            let (__packet_macro_field_bytes, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field_ptr = __packet_macro_field_bytes.as_ptr();
-                            let __packet_macro_field = ::std::slice::from_raw_parts(
-                                __packet_macro_field_ptr.cast::<u8>(),
-                                __packet_macro_count,
-                            );
+                            let (bytes, rem) = input.split_at(byte_len);
+                            let bytes = bytes.as_ptr();
+                            let field = ::std::slice::from_raw_parts(bytes.cast::<u8>(), count);
                             debug_assert_eq!(
-                                __packet_macro_field_ptr.offset(__packet_macro_size as isize)
-                                    as usize,
-                                __packet_macro_field
-                                    .as_ptr()
-                                    .offset(__packet_macro_count as isize)
-                                    as usize
+                                bytes.offset(byte_len as isize) as usize,
+                                field.as_ptr().offset(count as isize) as usize
                             );
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            data = Some(__packet_macro_field);
-                            __packet_macro_read_len
-                        };
+                            input = rem;
+                            data = Some(field);
+                        }
                         let _ref = PaddedEnum::First {
                             padding: padding.unwrap(),
                             data_len: data_len.unwrap(),
                             data: data.unwrap(),
                         };
-                        return Ok((_ref, __packet_macro_bytes));
+                        return Ok((_ref, input));
                     }
                     return Err(WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u8>()
@@ -1334,41 +1265,37 @@ impl<'input> PaddedEnum<'input> {
                     let mut padding: Option<u8> = None;
                     let mut array: Option<[u16; 3]> = None;
                     'tryref_1: loop {
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_size = ::std::mem::size_of::<u8>();
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_1;
-                            }
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: *const u8 =
-                                __packet_macro_field.as_ptr().cast::<u8>();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            padding = Some(__packet_macro_field.read_unaligned());
-                            __packet_macro_read_len
-                        };
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_size = ::std::mem::size_of::<[u16; 3]>();
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_1;
-                            }
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: *const [u16; 3] =
-                                __packet_macro_field.as_ptr().cast::<[u16; 3]>();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            array = Some(__packet_macro_field.read_unaligned());
-                            __packet_macro_read_len
-                        };
+                        {
+                            let (field, rem) = match <u8>::try_ref(input) {
+                                Ok((f, b)) => (f, b),
+                                Err(WrapErr::InvalidTag(offset)) => {
+                                    return Err(WrapErr::InvalidTag(
+                                        __packet_macro_read_len + offset,
+                                    ))
+                                }
+                                Err(..) => break 'tryref_1,
+                            };
+                            input = rem;
+                            padding = Some(field);
+                        }
+                        {
+                            let (field, rem) = match <[u16; 3]>::try_ref(input) {
+                                Ok((f, b)) => (f, b),
+                                Err(WrapErr::InvalidTag(offset)) => {
+                                    return Err(WrapErr::InvalidTag(
+                                        __packet_macro_read_len + offset,
+                                    ))
+                                }
+                                Err(..) => break 'tryref_1,
+                            };
+                            input = rem;
+                            array = Some(field);
+                        }
                         let _ref = PaddedEnum::Fixed {
                             padding: padding.unwrap(),
                             array: array.unwrap(),
                         };
-                        return Ok((_ref, __packet_macro_bytes));
+                        return Ok((_ref, input));
                     }
                     return Err(WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u8>()
@@ -1382,8 +1309,12 @@ impl<'input> PaddedEnum<'input> {
         Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<u8>()))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         match self {
             &PaddedEnum::First {
                 padding,
@@ -1392,74 +1323,49 @@ impl<'input> PaddedEnum<'input> {
             } => {
                 let k: &u8 = &2;
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<u8>();
-                    let __packet_field_bytes: &u8 = &k;
-                    let __packet_field_bytes = (__packet_field_bytes as *const u8).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = k.fill_slice(input);
                 }
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<[u8; 3]>();
-                    let __packet_field_bytes: &[u8; 3] = &padding;
-                    let __packet_field_bytes =
-                        (__packet_field_bytes as *const [u8; 3]).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = padding.fill_slice(input);
                 };
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<u32>();
-                    let __packet_field_bytes: &u32 = &data_len;
-                    let __packet_field_bytes = (__packet_field_bytes as *const u32).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = data_len.fill_slice(input);
                 };
                 unsafe {
-                    let __packet_field_count = (data_len) as usize;
-                    let data = &data[..__packet_field_count];
-                    let __packet_field_size = ::std::mem::size_of::<u8>() * __packet_field_count;
-                    let __packet_field_field_bytes = data.as_ptr().cast::<u8>();
-                    let __packet_field_field_slice = ::std::slice::from_raw_parts(
-                        __packet_field_field_bytes,
-                        __packet_field_size,
-                    );
-                    __packet_macro_bytes.extend_from_slice(__packet_field_field_slice)
+                    let count = (data_len) as usize;
+                    let data = &data[..count];
+                    if <u8>::TRIVIAL_COPY {
+                        let size = <u8>::MIN_LEN * count;
+                        let (out, rem) = input.split_at_mut(size);
+                        let bytes = (data.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                        let bytes = std::slice::from_raw_parts(bytes, size);
+                        out.copy_from_slice(bytes);
+                        input = rem;
+                    } else {
+                        for data in data {
+                            input = data.fill_slice(input);
+                        }
+                    }
                 }
             }
             &PaddedEnum::Fixed { padding, array } => {
                 let k: &u8 = &3;
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<u8>();
-                    let __packet_field_bytes: &u8 = &k;
-                    let __packet_field_bytes = (__packet_field_bytes as *const u8).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = k.fill_slice(input);
                 }
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<u8>();
-                    let __packet_field_bytes: &u8 = &padding;
-                    let __packet_field_bytes = (__packet_field_bytes as *const u8).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = padding.fill_slice(input);
                 };
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<[u16; 3]>();
-                    let __packet_field_bytes: &[u16; 3] = &array;
-                    let __packet_field_bytes =
-                        (__packet_field_bytes as *const [u16; 3]).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = array.fill_slice(input);
                 }
             }
         }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         match self {
             &PaddedEnum::First {
                 padding,
@@ -1499,15 +1405,15 @@ const _: () = {
     let _padding_check = [()][(size_of::<f64>() < align_of::<f64>()) as u8 as usize];
 };
 const _: () = {
-    fn a<T: FlatSerializable>() {}
+    fn a<'i, T: FlatSerializable<'i>>() {}
     let _ = a::<u32>;
-    fn padding<T: FlatSerializable>() {}
+    fn padding<'i, T: FlatSerializable<'i>>() {}
     let _ = padding::<[u8; 4]>;
-    fn b<T: FlatSerializable>() {}
+    fn b<'i, T: FlatSerializable<'i>>() {}
     let _ = b::<f64>;
 };
-impl InMacro {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'a> FlatSerializable<'a> for InMacro {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
         let alignment = align_of::<u32>();
@@ -1523,88 +1429,85 @@ impl InMacro {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        let min_align = match min_align {
-            None => return None,
-            Some(min_align) => min_align,
-        };
-        let min_size = Self::min_len();
-        if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+        match min_align {
+            None => None,
+            Some(min_align) => {
+                let min_size = Self::MIN_LEN;
+                if min_size % 8 == 0 && min_align >= 8 {
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
+                }
+            }
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
         size += size_of::<u32>();
         size += size_of::<[u8; 4]>();
         size += size_of::<f64>();
         size
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+        if input.len() < Self::MIN_LEN {
+            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+        }
         let __packet_macro_read_len = 0usize;
         let mut a: Option<u32> = None;
         let mut padding: Option<[u8; 4]> = None;
         let mut b: Option<f64> = None;
         'tryref: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<u32>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const u32 = __packet_macro_field.as_ptr().cast::<u32>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                a = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<[u8; 4]>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const [u8; 4] =
-                    __packet_macro_field.as_ptr().cast::<[u8; 4]>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                padding = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<f64>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const f64 = __packet_macro_field.as_ptr().cast::<f64>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                b = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
+            {
+                let (field, rem) = match <u32>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                a = Some(field);
+            }
+            {
+                let (field, rem) = match <[u8; 4]>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                padding = Some(field);
+            }
+            {
+                let (field, rem) = match <f64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                b = Some(field);
+            }
             let _ref = InMacro {
                 a: a.unwrap(),
                 padding: padding.unwrap(),
                 b: b.unwrap(),
             };
-            return Ok((_ref, __packet_macro_bytes));
+            return Ok((_ref, input));
         }
         Err(WrapErr::NotEnoughBytes(
             0 + ::std::mem::size_of::<u32>()
@@ -1613,36 +1516,29 @@ impl InMacro {
         ))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         let &InMacro { a, padding, b } = self;
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<u32>();
-            let __packet_field_bytes: &u32 = &a;
-            let __packet_field_bytes = (__packet_field_bytes as *const u32).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = a.fill_slice(input);
         };
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<[u8; 4]>();
-            let __packet_field_bytes: &[u8; 4] = &padding;
-            let __packet_field_bytes = (__packet_field_bytes as *const [u8; 4]).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = padding.fill_slice(input);
         };
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<f64>();
-            let __packet_field_bytes: &f64 = &b;
-            let __packet_field_bytes = (__packet_field_bytes as *const f64).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = b.fill_slice(input);
         }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    #[inline(always)]
+    fn len(&self) -> usize {
         let &InMacro { a, padding, b } = self;
         0usize
             + ::std::mem::size_of::<u32>()
@@ -1662,11 +1558,11 @@ const _: () = {
     let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
 };
 const _: () = {
-    fn val<T: FlatSerializable>() {}
+    fn val<'i, T: FlatSerializable<'i>>() {}
     let _ = val::<i64>;
 };
-impl NoLifetime {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'a> FlatSerializable<'a> for NoLifetime {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
         let alignment = align_of::<i64>();
@@ -1674,71 +1570,76 @@ impl NoLifetime {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        let min_align = match min_align {
-            None => return None,
-            Some(min_align) => min_align,
-        };
-        let min_size = Self::min_len();
-        if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+        match min_align {
+            None => None,
+            Some(min_align) => {
+                let min_size = Self::MIN_LEN;
+                if min_size % 8 == 0 && min_align >= 8 {
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
+                }
+            }
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
         size += size_of::<i64>();
         size
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+        if input.len() < Self::MIN_LEN {
+            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+        }
         let __packet_macro_read_len = 0usize;
         let mut val: Option<i64> = None;
         'tryref: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<i64>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const i64 = __packet_macro_field.as_ptr().cast::<i64>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                val = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
-            };
+            {
+                let (field, rem) = match <i64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                val = Some(field);
+            }
             let _ref = NoLifetime { val: val.unwrap() };
-            return Ok((_ref, __packet_macro_bytes));
+            return Ok((_ref, input));
         }
         Err(WrapErr::NotEnoughBytes(0 + ::std::mem::size_of::<i64>()))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         let &NoLifetime { val } = self;
         unsafe {
-            let __packet_field_size = ::std::mem::size_of::<i64>();
-            let __packet_field_bytes: &i64 = &val;
-            let __packet_field_bytes = (__packet_field_bytes as *const i64).cast::<u8>();
-            let __packet_field_slice =
-                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+            input = val.fill_slice(input);
         }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    #[inline(always)]
+    fn len(&self) -> usize {
         let &NoLifetime { val } = self;
         0usize + ::std::mem::size_of::<i64>()
     }
@@ -1750,91 +1651,100 @@ pub struct NestedNoLifetime {
 }
 const _: () = {
     use std::mem::{align_of, size_of};
-    let _alignment_check: () = [()][(0) % NoLifetime::required_alignment()];
-    let _alignment_check2: () = [()][(NoLifetime::required_alignment() > 8) as u8 as usize];
+    let _alignment_check: () = [()][(0) % <NoLifetime>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<NoLifetime>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
 };
 const _: () = {
-    fn nested<'a, T: FlattenableRef<'a>>() {}
+    fn nested<'test, T: FlattenableRef<'test>>() {}
     let _ = nested::<NoLifetime>;
 };
-impl NestedNoLifetime {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'a> FlatSerializable<'a> for NestedNoLifetime {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
-        let alignment = NoLifetime::required_alignment();
+        let alignment = <NoLifetime>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (NoLifetime::max_provided_alignment(), min_align) {
+        match (<NoLifetime>::MAX_PROVIDED_ALIGNMENT, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        let min_align = match min_align {
-            None => return None,
-            Some(min_align) => min_align,
-        };
-        let min_size = Self::min_len();
-        if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+        match min_align {
+            None => None,
+            Some(min_align) => {
+                let min_size = Self::MIN_LEN;
+                if min_size % 8 == 0 && min_align >= 8 {
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
+                }
+            }
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
-        size += NoLifetime::min_len();
+        size += <NoLifetime>::MIN_LEN;
         size
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+        if input.len() < Self::MIN_LEN {
+            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+        }
         let __packet_macro_read_len = 0usize;
         let mut nested: Option<NoLifetime> = None;
         'tryref: loop {
-            let __packet_macro_read_len: usize = {
-                let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    match NoLifetime::try_ref(__packet_macro_bytes) {
-                        Ok((f, b)) => (f, b),
-                        Err(WrapErr::InvalidTag(offset)) => {
-                            return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
-                        }
-                        Err(..) => break 'tryref,
-                    };
-                let __packet_macro_size =
-                    __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                nested = Some(__packet_macro_field);
-                __packet_macro_read_len + __packet_macro_size
-            };
+            {
+                let (field, rem) = match <NoLifetime>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                nested = Some(field);
+            }
             let _ref = NestedNoLifetime {
                 nested: nested.unwrap(),
             };
-            return Ok((_ref, __packet_macro_bytes));
+            return Ok((_ref, input));
         }
-        Err(WrapErr::NotEnoughBytes(0 + NoLifetime::min_len()))
+        Err(WrapErr::NotEnoughBytes(0 + <NoLifetime>::MIN_LEN))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         let &NestedNoLifetime { nested } = self;
-        nested.fill_vec(__packet_macro_bytes);
+        unsafe {
+            input = nested.fill_slice(input);
+        }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    #[inline(always)]
+    fn len(&self) -> usize {
         let &NestedNoLifetime { nested } = self;
         0usize + nested.len()
     }
@@ -1863,17 +1773,17 @@ const _: () = {
     }
 };
 const _: () = {
-    fn tag<T: FlatSerializable>() {}
+    fn tag<'i, T: FlatSerializable<'i>>() {}
     let _ = tag::<i64>;
     const _: () = {
         const _: () = {
-            fn val<T: FlatSerializable>() {}
+            fn val<'i, T: FlatSerializable<'i>>() {}
             let _ = val::<i64>;
         };
     };
 };
-impl ENoLifetime {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'a> FlatSerializable<'a> for ENoLifetime {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<i64>();
         let alignment: usize = {
@@ -1888,8 +1798,8 @@ impl ENoLifetime {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::{align_of, size_of};
         let mut min_align: usize = match Some(8) {
             None => 8,
@@ -1915,19 +1825,18 @@ impl ENoLifetime {
         if variant_alignment < min_align {
             min_align = variant_alignment
         }
-        let min_size = Self::min_len();
+        let min_size = Self::MIN_LEN;
         if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+            Some(8)
+        } else if min_size % 4 == 0 && min_align >= 4 {
+            Some(4)
+        } else if min_size % 2 == 0 && min_align >= 2 {
+            Some(2)
+        } else {
+            Some(1)
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size: Option<usize> = None;
         let variant_size = {
@@ -1940,51 +1849,48 @@ impl ENoLifetime {
             Some(size) if size > variant_size => Some(variant_size),
             Some(size) => Some(size),
         };
-        if let Some(size) = size {
-            return size;
+        match size {
+            Some(size) => size,
+            None => size_of::<i64>(),
         }
-        size_of::<i64>()
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut tag = None;
         'tryref_tag: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<i64>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref_tag;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const i64 = __packet_macro_field.as_ptr().cast::<i64>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                tag = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
+            {
+                let (field, rem) = match <i64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref_tag,
+                };
+                input = rem;
+                tag = Some(field);
             };
             match tag {
                 Some(1) => {
                     let mut val: Option<i64> = None;
                     'tryref_0: loop {
-                        let __packet_macro_read_len: usize = {
-                            let __packet_macro_size = ::std::mem::size_of::<i64>();
-                            let __packet_macro_read_len =
-                                __packet_macro_read_len + __packet_macro_size;
-                            if __packet_macro_bytes.len() < __packet_macro_size {
-                                break 'tryref_0;
-                            }
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                __packet_macro_bytes.split_at(__packet_macro_size);
-                            let __packet_macro_field: *const i64 =
-                                __packet_macro_field.as_ptr().cast::<i64>();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            val = Some(__packet_macro_field.read_unaligned());
-                            __packet_macro_read_len
-                        };
+                        {
+                            let (field, rem) = match <i64>::try_ref(input) {
+                                Ok((f, b)) => (f, b),
+                                Err(WrapErr::InvalidTag(offset)) => {
+                                    return Err(WrapErr::InvalidTag(
+                                        __packet_macro_read_len + offset,
+                                    ))
+                                }
+                                Err(..) => break 'tryref_0,
+                            };
+                            input = rem;
+                            val = Some(field);
+                        }
                         let _ref = ENoLifetime::Variant { val: val.unwrap() };
-                        return Ok((_ref, __packet_macro_bytes));
+                        return Ok((_ref, input));
                     }
                     return Err(WrapErr::NotEnoughBytes(
                         std::mem::size_of::<i64>() + ::std::mem::size_of::<i64>(),
@@ -1996,32 +1902,28 @@ impl ENoLifetime {
         Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<i64>()))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         match self {
             &ENoLifetime::Variant { val } => {
                 let tag: &i64 = &1;
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<i64>();
-                    let __packet_field_bytes: &i64 = &tag;
-                    let __packet_field_bytes = (__packet_field_bytes as *const i64).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = tag.fill_slice(input);
                 }
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<i64>();
-                    let __packet_field_bytes: &i64 = &val;
-                    let __packet_field_bytes = (__packet_field_bytes as *const i64).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = val.fill_slice(input);
                 }
             }
         }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         match self {
             &ENoLifetime::Variant { val } => {
                 ::std::mem::size_of::<i64>() + ::std::mem::size_of::<i64>()
@@ -2041,8 +1943,8 @@ const _: () = {
     let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
     const _: () = {
         use std::mem::{align_of, size_of};
-        let _alignment_check: () = [()][(0 + size_of::<i64>()) % ENoLifetime::required_alignment()];
-        let _alignment_check2: () = [()][(ENoLifetime::required_alignment() > 8) as u8 as usize];
+        let _alignment_check: () = [()][(0 + size_of::<i64>()) % <ENoLifetime>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()][(<ENoLifetime>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
     };
 };
 const _: () = {
@@ -2052,22 +1954,22 @@ const _: () = {
     }
 };
 const _: () = {
-    fn tag<T: FlatSerializable>() {}
+    fn tag<'i, T: FlatSerializable<'i>>() {}
     let _ = tag::<i64>;
     const _: () = {
         const _: () = {
-            fn val<'a, T: FlattenableRef<'a>>() {}
+            fn val<'test, T: FlattenableRef<'test>>() {}
             let _ = val::<ENoLifetime>;
         };
     };
 };
-impl NestedENoLifetime {
-    pub const fn required_alignment() -> usize {
+unsafe impl<'a> FlatSerializable<'a> for NestedENoLifetime {
+    const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<i64>();
         let alignment: usize = {
             let mut required_alignment = align_of::<i64>();
-            let alignment = ENoLifetime::required_alignment();
+            let alignment = <ENoLifetime>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
@@ -2077,8 +1979,8 @@ impl NestedENoLifetime {
             required_alignment = alignment;
         }
         required_alignment
-    }
-    pub const fn max_provided_alignment() -> Option<usize> {
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::{align_of, size_of};
         let mut min_align: usize = match Some(8) {
             None => 8,
@@ -2086,14 +1988,14 @@ impl NestedENoLifetime {
         };
         let variant_alignment: usize = {
             let mut min_align: Option<usize> = Some(8);
-            let alignment = { ENoLifetime::max_provided_alignment() };
+            let alignment = { <ENoLifetime>::MAX_PROVIDED_ALIGNMENT };
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
                 (Some(align), Some(min)) if align < min => min_align = Some(align),
                 _ => (),
             }
-            let variant_size: usize = size_of::<i64>() + ENoLifetime::min_len();
+            let variant_size: usize = size_of::<i64>() + <ENoLifetime>::MIN_LEN;
             let effective_alignment = match min_align {
                 Some(align) => align,
                 None => 8,
@@ -2111,24 +2013,23 @@ impl NestedENoLifetime {
         if variant_alignment < min_align {
             min_align = variant_alignment
         }
-        let min_size = Self::min_len();
+        let min_size = Self::MIN_LEN;
         if min_size % 8 == 0 && min_align >= 8 {
-            return Some(8);
+            Some(8)
+        } else if min_size % 4 == 0 && min_align >= 4 {
+            Some(4)
+        } else if min_size % 2 == 0 && min_align >= 2 {
+            Some(2)
+        } else {
+            Some(1)
         }
-        if min_size % 4 == 0 && min_align >= 4 {
-            return Some(4);
-        }
-        if min_size % 2 == 0 && min_align >= 2 {
-            return Some(2);
-        }
-        return Some(1);
-    }
-    pub const fn min_len() -> usize {
+    };
+    const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size: Option<usize> = None;
         let variant_size = {
             let mut size: usize = size_of::<i64>();
-            size += ENoLifetime::min_len();
+            size += <ENoLifetime>::MIN_LEN;
             size
         };
         size = match size {
@@ -2136,57 +2037,51 @@ impl NestedENoLifetime {
             Some(size) if size > variant_size => Some(variant_size),
             Some(size) => Some(size),
         };
-        if let Some(size) = size {
-            return size;
+        match size {
+            Some(size) => size,
+            None => size_of::<i64>(),
         }
-        size_of::<i64>()
-    }
+    };
+    const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut tag = None;
         'tryref_tag: loop {
-            let __packet_macro_read_len: usize = {
-                let __packet_macro_size = ::std::mem::size_of::<i64>();
-                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
-                if __packet_macro_bytes.len() < __packet_macro_size {
-                    break 'tryref_tag;
-                }
-                let (__packet_macro_field, __packet_macro_rem_bytes) =
-                    __packet_macro_bytes.split_at(__packet_macro_size);
-                let __packet_macro_field: *const i64 = __packet_macro_field.as_ptr().cast::<i64>();
-                __packet_macro_bytes = __packet_macro_rem_bytes;
-                tag = Some(__packet_macro_field.read_unaligned());
-                __packet_macro_read_len
+            {
+                let (field, rem) = match <i64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(WrapErr::InvalidTag(offset)) => {
+                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    }
+                    Err(..) => break 'tryref_tag,
+                };
+                input = rem;
+                tag = Some(field);
             };
             match tag {
                 Some(2) => {
                     let mut val: Option<ENoLifetime> = None;
                     'tryref_0: loop {
-                        let __packet_macro_read_len: usize = {
-                            let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
-                            let (__packet_macro_field, __packet_macro_rem_bytes) =
-                                match ENoLifetime::try_ref(__packet_macro_bytes) {
-                                    Ok((f, b)) => (f, b),
-                                    Err(WrapErr::InvalidTag(offset)) => {
-                                        return Err(WrapErr::InvalidTag(
-                                            __packet_macro_read_len + offset,
-                                        ))
-                                    }
-                                    Err(..) => break 'tryref_0,
-                                };
-                            let __packet_macro_size =
-                                __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
-                            __packet_macro_bytes = __packet_macro_rem_bytes;
-                            val = Some(__packet_macro_field);
-                            __packet_macro_read_len + __packet_macro_size
-                        };
+                        {
+                            let (field, rem) = match <ENoLifetime>::try_ref(input) {
+                                Ok((f, b)) => (f, b),
+                                Err(WrapErr::InvalidTag(offset)) => {
+                                    return Err(WrapErr::InvalidTag(
+                                        __packet_macro_read_len + offset,
+                                    ))
+                                }
+                                Err(..) => break 'tryref_0,
+                            };
+                            input = rem;
+                            val = Some(field);
+                        }
                         let _ref = NestedENoLifetime::Variant { val: val.unwrap() };
-                        return Ok((_ref, __packet_macro_bytes));
+                        return Ok((_ref, input));
                     }
                     return Err(WrapErr::NotEnoughBytes(
-                        std::mem::size_of::<i64>() + ENoLifetime::min_len(),
+                        std::mem::size_of::<i64>() + <ENoLifetime>::MIN_LEN,
                     ));
                 }
                 _ => return Err(WrapErr::InvalidTag(0)),
@@ -2195,25 +2090,28 @@ impl NestedENoLifetime {
         Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<i64>()))
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
-        __packet_macro_bytes.reserve_exact(self.len());
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [MaybeUninit<u8>],
+    ) -> &'out mut [MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
         match self {
             &NestedENoLifetime::Variant { val } => {
                 let tag: &i64 = &2;
                 unsafe {
-                    let __packet_field_size = ::std::mem::size_of::<i64>();
-                    let __packet_field_bytes: &i64 = &tag;
-                    let __packet_field_bytes = (__packet_field_bytes as *const i64).cast::<u8>();
-                    let __packet_field_slice =
-                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
-                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                    input = tag.fill_slice(input);
                 }
-                val.fill_vec(__packet_macro_bytes);
+                unsafe {
+                    input = val.fill_slice(input);
+                }
             }
         }
+        debug_assert_eq!(input.len(), 0);
+        rem
     }
     #[allow(unused_assignments, unused_variables)]
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         match self {
             &NestedENoLifetime::Variant { val } => ::std::mem::size_of::<i64>() + val.len(),
         }

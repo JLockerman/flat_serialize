@@ -23,7 +23,7 @@ supports variable-length fields where the length is stored in an earlier field.
 /// along with various functions to read and write this data to byte buffers
 /// (see below)
 flat_serialize!{
-    struct Basic {
+    struct Basic<'a> {
         header: u32,
         data_len: usize,
         array: [u16; 3],
@@ -84,7 +84,7 @@ fn basic() {
 /// }
 /// ```
 flat_serialize!{
-    struct Nested {
+    struct Nested<'a> {
         prefix: u64,
         #[flat_serialize::flatten]
         basic: Basic<'a>,
@@ -94,7 +94,7 @@ flat_serialize!{
 /// Enum-like values are also supported. The enum tag is stored immediately
 /// before the enum fields.
 flat_serialize!{
-    enum Enum {
+    enum Enum<'a> {
         k: u64,
         First: 2 {
             data_len: u32,
