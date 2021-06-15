@@ -1,10 +1,10 @@
 #[derive(Copy, Clone, Debug)]
-pub struct Basic<'a> {
+pub struct Basic<'input> {
     pub header: u64,
     pub data_len: u32,
     pub array: [u16; 3],
-    pub data: &'a [u8],
-    pub data2: &'a [u8],
+    pub data: &'input [u8],
+    pub data2: &'input [u8],
 }
 const _: () = {
     use std::mem::{align_of, size_of};
@@ -43,7 +43,7 @@ const _: () = {
     fn data2<T: FlatSerializable>() {}
     let _ = data2::<u8>;
 };
-impl<'a> Basic<'a> {
+impl<'input> Basic<'input> {
     pub const fn required_alignment() -> usize {
         use std::mem::align_of;
         let mut required_alignment = 1;
@@ -112,7 +112,9 @@ impl<'a> Basic<'a> {
     }
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+    pub unsafe fn try_ref(
+        mut __packet_macro_bytes: &'input [u8],
+    ) -> Result<(Self, &'input [u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut header: Option<u64> = None;
         let mut data_len: Option<u32> = None;
@@ -307,7 +309,7 @@ impl<'a> Basic<'a> {
             + (::std::mem::size_of::<u8>() * ((data_len) / 2) as usize)
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for Basic<'a> {}
+unsafe impl<'input> FlattenableRef<'input> for Basic<'input> {}
 #[derive(Copy, Clone, Debug)]
 pub struct Optional {
     pub header: u64,
@@ -649,8 +651,8 @@ impl<'a> Nested<'a> {
 }
 unsafe impl<'a> FlattenableRef<'a> for Nested<'a> {}
 #[derive(Copy, Clone)]
-pub enum BasicEnum<'a> {
-    First { data_len: u32, data: &'a [u8] },
+pub enum BasicEnum<'input> {
+    First { data_len: u32, data: &'input [u8] },
     Fixed { array: [u16; 3] },
 }
 const _: () = {
@@ -700,7 +702,7 @@ const _: () = {
         };
     };
 };
-impl<'a> BasicEnum<'a> {
+impl<'input> BasicEnum<'input> {
     pub const fn required_alignment() -> usize {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<u64>();
@@ -828,7 +830,9 @@ impl<'a> BasicEnum<'a> {
     }
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+    pub unsafe fn try_ref(
+        mut __packet_macro_bytes: &'input [u8],
+    ) -> Result<(Self, &'input [u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut k = None;
         'tryref_tag: loop {
@@ -1013,13 +1017,13 @@ impl<'a> BasicEnum<'a> {
         }
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for BasicEnum<'a> {}
+unsafe impl<'input> FlattenableRef<'input> for BasicEnum<'input> {}
 #[derive(Copy, Clone)]
-pub enum PaddedEnum<'a> {
+pub enum PaddedEnum<'input> {
     First {
         padding: [u8; 3],
         data_len: u32,
-        data: &'a [u8],
+        data: &'input [u8],
     },
     Fixed {
         padding: u8,
@@ -1085,7 +1089,7 @@ const _: () = {
         };
     };
 };
-impl<'a> PaddedEnum<'a> {
+impl<'input> PaddedEnum<'input> {
     pub const fn required_alignment() -> usize {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<u8>();
@@ -1223,7 +1227,9 @@ impl<'a> PaddedEnum<'a> {
     }
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    pub unsafe fn try_ref(mut __packet_macro_bytes: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+    pub unsafe fn try_ref(
+        mut __packet_macro_bytes: &'input [u8],
+    ) -> Result<(Self, &'input [u8]), WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut k = None;
         'tryref_tag: loop {
@@ -1473,7 +1479,7 @@ impl<'a> PaddedEnum<'a> {
         }
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for PaddedEnum<'a> {}
+unsafe impl<'input> FlattenableRef<'input> for PaddedEnum<'input> {}
 #[derive(Copy, Clone, Debug)]
 pub struct InMacro {
     pub a: u32,
@@ -1645,3 +1651,572 @@ impl InMacro {
     }
 }
 unsafe impl<'a> FlattenableRef<'a> for InMacro {}
+#[derive(Copy, Clone)]
+pub struct NoLifetime {
+    pub val: i64,
+}
+const _: () = {
+    use std::mem::{align_of, size_of};
+    let _alignment_check = [()][(0) % align_of::<i64>()];
+    let _alignment_check2 = [()][(align_of::<i64>() > 8) as u8 as usize];
+    let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
+};
+const _: () = {
+    fn val<T: FlatSerializable>() {}
+    let _ = val::<i64>;
+};
+impl NoLifetime {
+    pub const fn required_alignment() -> usize {
+        use std::mem::align_of;
+        let mut required_alignment = 1;
+        let alignment = align_of::<i64>();
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        required_alignment
+    }
+    pub const fn max_provided_alignment() -> Option<usize> {
+        use std::mem::align_of;
+        let mut min_align: Option<usize> = None;
+        let min_align = match min_align {
+            None => return None,
+            Some(min_align) => min_align,
+        };
+        let min_size = Self::min_len();
+        if min_size % 8 == 0 && min_align >= 8 {
+            return Some(8);
+        }
+        if min_size % 4 == 0 && min_align >= 4 {
+            return Some(4);
+        }
+        if min_size % 2 == 0 && min_align >= 2 {
+            return Some(2);
+        }
+        return Some(1);
+    }
+    pub const fn min_len() -> usize {
+        use std::mem::size_of;
+        let mut size = 0;
+        size += size_of::<i64>();
+        size
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+        let __packet_macro_read_len = 0usize;
+        let mut val: Option<i64> = None;
+        'tryref: loop {
+            let __packet_macro_read_len: usize = {
+                let __packet_macro_size = ::std::mem::size_of::<i64>();
+                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                if __packet_macro_bytes.len() < __packet_macro_size {
+                    break 'tryref;
+                }
+                let (__packet_macro_field, __packet_macro_rem_bytes) =
+                    __packet_macro_bytes.split_at(__packet_macro_size);
+                let __packet_macro_field: *const i64 = __packet_macro_field.as_ptr().cast::<i64>();
+                __packet_macro_bytes = __packet_macro_rem_bytes;
+                val = Some(__packet_macro_field.read_unaligned());
+                __packet_macro_read_len
+            };
+            let _ref = NoLifetime { val: val.unwrap() };
+            return Ok((_ref, __packet_macro_bytes));
+        }
+        Err(WrapErr::NotEnoughBytes(0 + ::std::mem::size_of::<i64>()))
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
+        __packet_macro_bytes.reserve_exact(self.len());
+        let &NoLifetime { val } = self;
+        unsafe {
+            let __packet_field_size = ::std::mem::size_of::<i64>();
+            let __packet_field_bytes: &i64 = &val;
+            let __packet_field_bytes = (__packet_field_bytes as *const i64).cast::<u8>();
+            let __packet_field_slice =
+                ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
+            __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+        }
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn len(&self) -> usize {
+        let &NoLifetime { val } = self;
+        0usize + ::std::mem::size_of::<i64>()
+    }
+}
+unsafe impl<'a> FlattenableRef<'a> for NoLifetime {}
+#[derive(Copy, Clone)]
+pub struct NestedNoLifetime {
+    pub nested: NoLifetime,
+}
+const _: () = {
+    use std::mem::{align_of, size_of};
+    let _alignment_check: () = [()][(0) % NoLifetime::required_alignment()];
+    let _alignment_check2: () = [()][(NoLifetime::required_alignment() > 8) as u8 as usize];
+};
+const _: () = {
+    fn nested<'a, T: FlattenableRef<'a>>() {}
+    let _ = nested::<NoLifetime>;
+};
+impl NestedNoLifetime {
+    pub const fn required_alignment() -> usize {
+        use std::mem::align_of;
+        let mut required_alignment = 1;
+        let alignment = NoLifetime::required_alignment();
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        required_alignment
+    }
+    pub const fn max_provided_alignment() -> Option<usize> {
+        use std::mem::align_of;
+        let mut min_align: Option<usize> = None;
+        match (NoLifetime::max_provided_alignment(), min_align) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        let min_align = match min_align {
+            None => return None,
+            Some(min_align) => min_align,
+        };
+        let min_size = Self::min_len();
+        if min_size % 8 == 0 && min_align >= 8 {
+            return Some(8);
+        }
+        if min_size % 4 == 0 && min_align >= 4 {
+            return Some(4);
+        }
+        if min_size % 2 == 0 && min_align >= 2 {
+            return Some(2);
+        }
+        return Some(1);
+    }
+    pub const fn min_len() -> usize {
+        use std::mem::size_of;
+        let mut size = 0;
+        size += NoLifetime::min_len();
+        size
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+        let __packet_macro_read_len = 0usize;
+        let mut nested: Option<NoLifetime> = None;
+        'tryref: loop {
+            let __packet_macro_read_len: usize = {
+                let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
+                let (__packet_macro_field, __packet_macro_rem_bytes) =
+                    match NoLifetime::try_ref(__packet_macro_bytes) {
+                        Ok((f, b)) => (f, b),
+                        Err(WrapErr::InvalidTag(offset)) => {
+                            return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                        }
+                        Err(..) => break 'tryref,
+                    };
+                let __packet_macro_size =
+                    __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
+                __packet_macro_bytes = __packet_macro_rem_bytes;
+                nested = Some(__packet_macro_field);
+                __packet_macro_read_len + __packet_macro_size
+            };
+            let _ref = NestedNoLifetime {
+                nested: nested.unwrap(),
+            };
+            return Ok((_ref, __packet_macro_bytes));
+        }
+        Err(WrapErr::NotEnoughBytes(0 + NoLifetime::min_len()))
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
+        __packet_macro_bytes.reserve_exact(self.len());
+        let &NestedNoLifetime { nested } = self;
+        nested.fill_vec(__packet_macro_bytes);
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn len(&self) -> usize {
+        let &NestedNoLifetime { nested } = self;
+        0usize + nested.len()
+    }
+}
+unsafe impl<'a> FlattenableRef<'a> for NestedNoLifetime {}
+#[derive(Copy, Clone)]
+pub enum ENoLifetime {
+    Variant { val: i64 },
+}
+const _: () = {
+    use std::mem::{align_of, size_of};
+    let _alignment_check = [()][(0) % align_of::<i64>()];
+    let _alignment_check2 = [()][(align_of::<i64>() > 8) as u8 as usize];
+    let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
+    const _: () = {
+        use std::mem::{align_of, size_of};
+        let _alignment_check = [()][(0 + size_of::<i64>()) % align_of::<i64>()];
+        let _alignment_check2 = [()][(align_of::<i64>() > 8) as u8 as usize];
+        let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
+    };
+};
+const _: () = {
+    #[allow(dead_code)]
+    enum UniquenessCheck {
+        Variant = 1,
+    }
+};
+const _: () = {
+    fn tag<T: FlatSerializable>() {}
+    let _ = tag::<i64>;
+    const _: () = {
+        const _: () = {
+            fn val<T: FlatSerializable>() {}
+            let _ = val::<i64>;
+        };
+    };
+};
+impl ENoLifetime {
+    pub const fn required_alignment() -> usize {
+        use std::mem::align_of;
+        let mut required_alignment: usize = align_of::<i64>();
+        let alignment: usize = {
+            let mut required_alignment = align_of::<i64>();
+            let alignment = align_of::<i64>();
+            if alignment > required_alignment {
+                required_alignment = alignment;
+            }
+            required_alignment
+        };
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        required_alignment
+    }
+    pub const fn max_provided_alignment() -> Option<usize> {
+        use std::mem::{align_of, size_of};
+        let mut min_align: usize = match Some(8) {
+            None => 8,
+            Some(align) => align,
+        };
+        let variant_alignment: usize = {
+            let mut min_align: Option<usize> = Some(8);
+            let variant_size: usize = size_of::<i64>() + size_of::<i64>();
+            let effective_alignment = match min_align {
+                Some(align) => align,
+                None => 8,
+            };
+            if variant_size % 8 == 0 && effective_alignment >= 8 {
+                8
+            } else if variant_size % 4 == 0 && effective_alignment >= 4 {
+                4
+            } else if variant_size % 2 == 0 && effective_alignment >= 2 {
+                2
+            } else {
+                1
+            }
+        };
+        if variant_alignment < min_align {
+            min_align = variant_alignment
+        }
+        let min_size = Self::min_len();
+        if min_size % 8 == 0 && min_align >= 8 {
+            return Some(8);
+        }
+        if min_size % 4 == 0 && min_align >= 4 {
+            return Some(4);
+        }
+        if min_size % 2 == 0 && min_align >= 2 {
+            return Some(2);
+        }
+        return Some(1);
+    }
+    pub const fn min_len() -> usize {
+        use std::mem::size_of;
+        let mut size: Option<usize> = None;
+        let variant_size = {
+            let mut size: usize = size_of::<i64>();
+            size += size_of::<i64>();
+            size
+        };
+        size = match size {
+            None => Some(variant_size),
+            Some(size) if size > variant_size => Some(variant_size),
+            Some(size) => Some(size),
+        };
+        if let Some(size) = size {
+            return size;
+        }
+        size_of::<i64>()
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+        let __packet_macro_read_len = 0usize;
+        let mut tag = None;
+        'tryref_tag: loop {
+            let __packet_macro_read_len: usize = {
+                let __packet_macro_size = ::std::mem::size_of::<i64>();
+                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                if __packet_macro_bytes.len() < __packet_macro_size {
+                    break 'tryref_tag;
+                }
+                let (__packet_macro_field, __packet_macro_rem_bytes) =
+                    __packet_macro_bytes.split_at(__packet_macro_size);
+                let __packet_macro_field: *const i64 = __packet_macro_field.as_ptr().cast::<i64>();
+                __packet_macro_bytes = __packet_macro_rem_bytes;
+                tag = Some(__packet_macro_field.read_unaligned());
+                __packet_macro_read_len
+            };
+            match tag {
+                Some(1) => {
+                    let mut val: Option<i64> = None;
+                    'tryref_0: loop {
+                        let __packet_macro_read_len: usize = {
+                            let __packet_macro_size = ::std::mem::size_of::<i64>();
+                            let __packet_macro_read_len =
+                                __packet_macro_read_len + __packet_macro_size;
+                            if __packet_macro_bytes.len() < __packet_macro_size {
+                                break 'tryref_0;
+                            }
+                            let (__packet_macro_field, __packet_macro_rem_bytes) =
+                                __packet_macro_bytes.split_at(__packet_macro_size);
+                            let __packet_macro_field: *const i64 =
+                                __packet_macro_field.as_ptr().cast::<i64>();
+                            __packet_macro_bytes = __packet_macro_rem_bytes;
+                            val = Some(__packet_macro_field.read_unaligned());
+                            __packet_macro_read_len
+                        };
+                        let _ref = ENoLifetime::Variant { val: val.unwrap() };
+                        return Ok((_ref, __packet_macro_bytes));
+                    }
+                    return Err(WrapErr::NotEnoughBytes(
+                        std::mem::size_of::<i64>() + ::std::mem::size_of::<i64>(),
+                    ));
+                }
+                _ => return Err(WrapErr::InvalidTag(0)),
+            }
+        }
+        Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<i64>()))
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
+        __packet_macro_bytes.reserve_exact(self.len());
+        match self {
+            &ENoLifetime::Variant { val } => {
+                let tag: &i64 = &1;
+                unsafe {
+                    let __packet_field_size = ::std::mem::size_of::<i64>();
+                    let __packet_field_bytes: &i64 = &tag;
+                    let __packet_field_bytes = (__packet_field_bytes as *const i64).cast::<u8>();
+                    let __packet_field_slice =
+                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
+                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                }
+                unsafe {
+                    let __packet_field_size = ::std::mem::size_of::<i64>();
+                    let __packet_field_bytes: &i64 = &val;
+                    let __packet_field_bytes = (__packet_field_bytes as *const i64).cast::<u8>();
+                    let __packet_field_slice =
+                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
+                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                }
+            }
+        }
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn len(&self) -> usize {
+        match self {
+            &ENoLifetime::Variant { val } => {
+                ::std::mem::size_of::<i64>() + ::std::mem::size_of::<i64>()
+            }
+        }
+    }
+}
+unsafe impl<'a> FlattenableRef<'a> for ENoLifetime {}
+#[derive(Copy, Clone)]
+pub enum NestedENoLifetime {
+    Variant { val: ENoLifetime },
+}
+const _: () = {
+    use std::mem::{align_of, size_of};
+    let _alignment_check = [()][(0) % align_of::<i64>()];
+    let _alignment_check2 = [()][(align_of::<i64>() > 8) as u8 as usize];
+    let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
+    const _: () = {
+        use std::mem::{align_of, size_of};
+        let _alignment_check: () = [()][(0 + size_of::<i64>()) % ENoLifetime::required_alignment()];
+        let _alignment_check2: () = [()][(ENoLifetime::required_alignment() > 8) as u8 as usize];
+    };
+};
+const _: () = {
+    #[allow(dead_code)]
+    enum UniquenessCheck {
+        Variant = 2,
+    }
+};
+const _: () = {
+    fn tag<T: FlatSerializable>() {}
+    let _ = tag::<i64>;
+    const _: () = {
+        const _: () = {
+            fn val<'a, T: FlattenableRef<'a>>() {}
+            let _ = val::<ENoLifetime>;
+        };
+    };
+};
+impl NestedENoLifetime {
+    pub const fn required_alignment() -> usize {
+        use std::mem::align_of;
+        let mut required_alignment: usize = align_of::<i64>();
+        let alignment: usize = {
+            let mut required_alignment = align_of::<i64>();
+            let alignment = ENoLifetime::required_alignment();
+            if alignment > required_alignment {
+                required_alignment = alignment;
+            }
+            required_alignment
+        };
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        required_alignment
+    }
+    pub const fn max_provided_alignment() -> Option<usize> {
+        use std::mem::{align_of, size_of};
+        let mut min_align: usize = match Some(8) {
+            None => 8,
+            Some(align) => align,
+        };
+        let variant_alignment: usize = {
+            let mut min_align: Option<usize> = Some(8);
+            let alignment = { ENoLifetime::max_provided_alignment() };
+            match (alignment, min_align) {
+                (None, _) => (),
+                (Some(align), None) => min_align = Some(align),
+                (Some(align), Some(min)) if align < min => min_align = Some(align),
+                _ => (),
+            }
+            let variant_size: usize = size_of::<i64>() + ENoLifetime::min_len();
+            let effective_alignment = match min_align {
+                Some(align) => align,
+                None => 8,
+            };
+            if variant_size % 8 == 0 && effective_alignment >= 8 {
+                8
+            } else if variant_size % 4 == 0 && effective_alignment >= 4 {
+                4
+            } else if variant_size % 2 == 0 && effective_alignment >= 2 {
+                2
+            } else {
+                1
+            }
+        };
+        if variant_alignment < min_align {
+            min_align = variant_alignment
+        }
+        let min_size = Self::min_len();
+        if min_size % 8 == 0 && min_align >= 8 {
+            return Some(8);
+        }
+        if min_size % 4 == 0 && min_align >= 4 {
+            return Some(4);
+        }
+        if min_size % 2 == 0 && min_align >= 2 {
+            return Some(2);
+        }
+        return Some(1);
+    }
+    pub const fn min_len() -> usize {
+        use std::mem::size_of;
+        let mut size: Option<usize> = None;
+        let variant_size = {
+            let mut size: usize = size_of::<i64>();
+            size += ENoLifetime::min_len();
+            size
+        };
+        size = match size {
+            None => Some(variant_size),
+            Some(size) if size > variant_size => Some(variant_size),
+            Some(size) => Some(size),
+        };
+        if let Some(size) = size {
+            return size;
+        }
+        size_of::<i64>()
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    pub unsafe fn try_ref(mut __packet_macro_bytes: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+        let __packet_macro_read_len = 0usize;
+        let mut tag = None;
+        'tryref_tag: loop {
+            let __packet_macro_read_len: usize = {
+                let __packet_macro_size = ::std::mem::size_of::<i64>();
+                let __packet_macro_read_len = __packet_macro_read_len + __packet_macro_size;
+                if __packet_macro_bytes.len() < __packet_macro_size {
+                    break 'tryref_tag;
+                }
+                let (__packet_macro_field, __packet_macro_rem_bytes) =
+                    __packet_macro_bytes.split_at(__packet_macro_size);
+                let __packet_macro_field: *const i64 = __packet_macro_field.as_ptr().cast::<i64>();
+                __packet_macro_bytes = __packet_macro_rem_bytes;
+                tag = Some(__packet_macro_field.read_unaligned());
+                __packet_macro_read_len
+            };
+            match tag {
+                Some(2) => {
+                    let mut val: Option<ENoLifetime> = None;
+                    'tryref_0: loop {
+                        let __packet_macro_read_len: usize = {
+                            let __old_packet_macro_bytes_size = __packet_macro_bytes.len();
+                            let (__packet_macro_field, __packet_macro_rem_bytes) =
+                                match ENoLifetime::try_ref(__packet_macro_bytes) {
+                                    Ok((f, b)) => (f, b),
+                                    Err(WrapErr::InvalidTag(offset)) => {
+                                        return Err(WrapErr::InvalidTag(
+                                            __packet_macro_read_len + offset,
+                                        ))
+                                    }
+                                    Err(..) => break 'tryref_0,
+                                };
+                            let __packet_macro_size =
+                                __old_packet_macro_bytes_size - __packet_macro_rem_bytes.len();
+                            __packet_macro_bytes = __packet_macro_rem_bytes;
+                            val = Some(__packet_macro_field);
+                            __packet_macro_read_len + __packet_macro_size
+                        };
+                        let _ref = NestedENoLifetime::Variant { val: val.unwrap() };
+                        return Ok((_ref, __packet_macro_bytes));
+                    }
+                    return Err(WrapErr::NotEnoughBytes(
+                        std::mem::size_of::<i64>() + ENoLifetime::min_len(),
+                    ));
+                }
+                _ => return Err(WrapErr::InvalidTag(0)),
+            }
+        }
+        Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<i64>()))
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn fill_vec(&self, mut __packet_macro_bytes: &mut Vec<u8>) {
+        __packet_macro_bytes.reserve_exact(self.len());
+        match self {
+            &NestedENoLifetime::Variant { val } => {
+                let tag: &i64 = &2;
+                unsafe {
+                    let __packet_field_size = ::std::mem::size_of::<i64>();
+                    let __packet_field_bytes: &i64 = &tag;
+                    let __packet_field_bytes = (__packet_field_bytes as *const i64).cast::<u8>();
+                    let __packet_field_slice =
+                        ::std::slice::from_raw_parts(__packet_field_bytes, __packet_field_size);
+                    __packet_macro_bytes.extend_from_slice(__packet_field_slice)
+                }
+                val.fill_vec(__packet_macro_bytes);
+            }
+        }
+    }
+    #[allow(unused_assignments, unused_variables)]
+    pub fn len(&self) -> usize {
+        match self {
+            &NestedENoLifetime::Variant { val } => ::std::mem::size_of::<i64>() + val.len(),
+        }
+    }
+}
+unsafe impl<'a> FlattenableRef<'a> for NestedENoLifetime {}

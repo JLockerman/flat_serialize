@@ -57,6 +57,12 @@ impl Parse for FlatSerializeStruct {
         let content;
         let _struct_token: Token![struct] = input.parse()?;
         let ident = input.parse()?;
+        let mut lifetime = None;
+        if input.peek(Token![<]) {
+            let _: Token![<] = input.parse()?;
+            lifetime = Some(input.parse()?);
+            let _: Token![>] = input.parse()?;
+        }
         let _brace_token: token::Brace = braced!(content in input);
         let mut fields = content.parse_terminated(FlatSerializeField::parse)?;
         validate_self_fields(fields.iter_mut());
@@ -64,6 +70,7 @@ impl Parse for FlatSerializeStruct {
             per_field_attrs: vec![],
             attrs: vec![],
             ident,
+            lifetime,
             fields,
         })
     }
@@ -74,6 +81,12 @@ impl Parse for FlatSerializeEnum {
         let content;
         let _enum_token: Token![enum] = input.parse()?;
         let ident = input.parse()?;
+        let mut lifetime = None;
+        if input.peek(Token![<]) {
+            let _: Token![<] = input.parse()?;
+            lifetime = Some(input.parse()?);
+            let _: Token![>] = input.parse()?;
+        }
         let _brace_token: token::Brace = braced!(content in input);
         let tag = Field::parse_named(&content)?;
         let _comma_token: Token![,] = content.parse()?;
@@ -82,6 +95,7 @@ impl Parse for FlatSerializeEnum {
             per_field_attrs: vec![],
             attrs: vec![],
             ident,
+            lifetime,
             tag: FlatSerializeField {
                 field: tag,
                 // TODO can we allow these?
@@ -108,6 +122,7 @@ impl Parse for FlatSerializeVariant {
                 per_field_attrs: vec![],
                 attrs: vec![],
                 ident,
+                lifetime: None,
                 fields,
             },
         })

@@ -5,7 +5,7 @@ use proc_macro2::TokenStream as TokenStream2;
 
 use quote::{quote, quote_spanned};
 
-use syn::{Attribute, Expr, Field, Ident, Token, parse_macro_input, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut};
+use syn::{Attribute, Expr, Field, Ident, Lifetime, Token, parse_macro_input, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut};
 
 mod parser;
 
@@ -48,6 +48,7 @@ struct FlatSerializeEnum {
     per_field_attrs: Vec<PerFieldsAttr>,
     attrs: Vec<Attribute>,
     ident: Ident,
+    lifetime: Option<Lifetime>,
     tag: FlatSerializeField,
     variants: Punctuated<FlatSerializeVariant, Token![,]>,
 }
@@ -105,6 +106,7 @@ struct FlatSerializeStruct {
     per_field_attrs: Vec<PerFieldsAttr>,
     attrs: Vec<Attribute>,
     ident: Ident,
+    lifetime: Option<Lifetime>,
     fields: Punctuated<FlatSerializeField, Token![,]>,
 }
 struct FlatSerializeField {
@@ -141,19 +143,20 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
         let required_alignment = input.fn_required_alignment();
         let max_provided_alignment = input.fn_max_provided_alignment();
         let min_len = input.fn_min_len();
-
-        let has_lifetime = input.fields.iter()
-            .any(|f| f.is_by_ref());
-
-        let lifetime = has_lifetime.then(|| quote!{ 'a });
+        let lifetime = input.lifetime.as_ref().map(|lifetime| {
+            quote!{ #lifetime }
+        });
         let try_ref = input.fn_try_ref(lifetime.as_ref());
         let fill_vec = input.fn_fill_vec();
         let len = input.fn_len();
         let fields = input
             .fields
             .iter()
-            .map(|f| f.declaration(true, input.per_field_attrs.iter()));
-        let lifetime_args = has_lifetime.then(|| quote!{ <'a> });
+            .map(|f| f.declaration(true, lifetime.as_ref(), input.per_field_attrs.iter()));
+        let lifetime_args = input.lifetime.as_ref().map(|lifetime| {
+            quote!{ <#lifetime> }
+        });
+        let ref_liftime = lifetime_args.clone().unwrap_or_else(|| quote!{ <'a> });
         let attrs = &*input.attrs;
 
         quote! {
@@ -181,7 +184,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                 #len
             }
 
-            unsafe impl<'a> FlattenableRef<'a> for #ident #lifetime_args {}
+            unsafe impl #ref_liftime FlattenableRef #ref_liftime for #ident #lifetime_args {}
         }
     };
 
@@ -200,18 +203,14 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let max_provided_alignment = input.fn_max_provided_alignment();
     let min_len = input.fn_min_len();
 
-    let has_lifetime = input.variants.iter().any(|variant|
-        variant.body.fields.iter()
-            .any(|f| f.is_by_ref())
-    );
-    let lifetime = has_lifetime.then(|| quote!{ 'a });
-    let lifetime_args = has_lifetime.then(|| quote!{ <'a> });
-
+    let lifetime = input.lifetime.as_ref().map(|lifetime| quote!{ #lifetime });
+    let lifetime_args = input.lifetime.as_ref().map(|lifetime| quote!{ <#lifetime> });
+    let ref_liftime = lifetime_args.clone().unwrap_or_else(|| quote!{ <'a> });
 
     let try_ref = input.fn_try_ref(lifetime.as_ref());
     let fill_vec = input.fn_fill_vec();
     let len = input.fn_len();
-    let body = input.variants(lifetime_args.as_ref());
+    let body = input.variants(lifetime.as_ref());
     let ident = &input.ident;
     let attrs = &*input.attrs;
 
@@ -242,7 +241,7 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
             #len
         }
 
-        unsafe impl<'a> FlattenableRef<'a> for #ident #lifetime_args {}
+        unsafe impl #ref_liftime FlattenableRef #ref_liftime for #ident #lifetime_args {}
     }
 }
 
@@ -309,7 +308,7 @@ impl FlatSerializeEnum {
         let id = &self.ident;
         let variants = self.variants.iter().map(|variant| {
             let fields = variant.body.fields.iter().map(|f|
-                f.declaration(false, self.per_field_attrs.iter())
+                f.declaration(false, lifetime, self.per_field_attrs.iter())
             );
             let ident = &variant.body.ident;
             quote! {
@@ -318,8 +317,9 @@ impl FlatSerializeEnum {
                 },
             }
         });
+        let args = lifetime.map(|lifetime| quote!{ <#lifetime> });
         quote! {
-            pub enum #id #lifetime {
+            pub enum #id #args {
                 #(#variants)*
             }
         }
@@ -1165,15 +1165,22 @@ impl FlatSerializeField {
         }
     }
 
-    fn exposed_ty(&self) -> TokenStream2 {
+    fn exposed_ty(&self, lifetime: Option<&TokenStream2>) -> TokenStream2 {
         match &self.length_info {
             None => {
                 let nominal_ty = &self.ty;
-                quote! { #nominal_ty }
+                quote_spanned! {self.field.span()=>
+                    #nominal_ty
+                }
             },
-            Some(VariableLenFieldInfo { is_optional: false, ty, .. }) => quote! { &'a [#ty] },
+            Some(VariableLenFieldInfo { is_optional: false, ty, .. }) =>
+                quote_spanned! {self.field.span()=>
+                     & #lifetime [#ty]
+                },
             Some(VariableLenFieldInfo { is_optional: true, ty, .. }) => {
-                quote! { Option<#ty> }
+                quote_spanned! {self.field.span()=>
+                    Option<#ty>
+                }
             },
         }
     }
@@ -1223,6 +1230,7 @@ impl FlatSerializeField {
     fn declaration<'a, 'b: 'a>(
         &'b self,
         is_pub: bool,
+        lifetime: Option<&TokenStream2>,
         pf_attrs: impl Iterator<Item = &'a PerFieldsAttr> + 'a
     ) -> TokenStream2 {
         let name = self.ident.as_ref().unwrap();
@@ -1232,7 +1240,7 @@ impl FlatSerializeField {
             let ty = &self.ty;
             quote! { #(#attrs)* #pub_marker #name: #ty, }
         } else {
-            let ty = self.exposed_ty();
+            let ty = self.exposed_ty(lifetime);
             let per_field_attrs = self.per_field_attrs(pf_attrs);
             quote! { #(#per_field_attrs)* #(#attrs)* #pub_marker #name: #ty, }
         }
