@@ -99,7 +99,7 @@ impl Parse for FlatSerializeEnum {
             tag: FlatSerializeField {
                 field: tag,
                 // TODO can we allow these?
-                flatten: false,
+                ty_without_lifetime: None,
                 length_info: None,
             },
             variants,
@@ -153,6 +153,7 @@ impl Parse for FlatSerializeField {
             let expr = input.parse()?;
             length_info = Some(VariableLenFieldInfo {
                 ty: field.ty.clone(),
+                ty_without_lifetime: None,
                 len_expr: expr,
                 is_optional: true,
             });
@@ -162,14 +163,25 @@ impl Parse for FlatSerializeField {
                 // let self_fields_are_valid = validate_self_field(&array.len, &seen_fields);
                 length_info = Some(VariableLenFieldInfo {
                     ty: (*array.elem).clone(),
+                    ty_without_lifetime: None,
                     len_expr: array.len.clone(),
                     is_optional: false,
                 });
             }
         }
+
+        let mut ty_without_lifetime = None;
+        if has_lifetime(&field.ty) {
+            match &mut length_info {
+                None => ty_without_lifetime = Some(as_turbofish(&field.ty)),
+                Some(info) => {
+                    info.ty_without_lifetime = Some(as_turbofish(&info.ty));
+                }
+            }
+        }
         Ok(Self {
             field,
-            flatten: use_trait,
+            ty_without_lifetime,
             length_info,
         })
     }

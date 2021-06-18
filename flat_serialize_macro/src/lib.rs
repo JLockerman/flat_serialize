@@ -111,8 +111,7 @@ struct FlatSerializeStruct {
 }
 struct FlatSerializeField {
     field: Field,
-    /// call try_ref(...)/fill_slice(...) for de/serialization
-    flatten: bool,
+    ty_without_lifetime: Option<TokenStream2>,
     // TODO is this mutually exclusive with `flatten` above? Should we make an
     // enum to select between them?
     length_info: Option<VariableLenFieldInfo>,
@@ -128,6 +127,7 @@ struct PerFieldsAttr {
 /// how to find the length of a variable-length or optional field.
 struct VariableLenFieldInfo {
     ty: syn::Type,
+    ty_without_lifetime: Option<TokenStream2>,
     len_expr: syn::Expr,
     // is an optional field instead of a general varlen field, len_expr should
     // eval to a boolean
@@ -424,15 +424,18 @@ impl FlatSerializeEnum {
     }
 
     fn fn_max_provided_alignment(&self) -> TokenStream2 {
-        let min_align = match self.tag.max_provided_alignment() {
-            Some(align) => align,
-            None => quote!(Some(8)),
+        let min_align = self.tag.max_provided_alignment();
+        let min_align = quote!{
+            match #min_align {
+                Some(a) => Some(a),
+                None => Some(8),
+            }
         };
 
         let min_size = self.tag.min_len();
 
         let alignments = self.variants.iter().map(|v| {
-            let alignments = v.body.fields.iter().flat_map(|f| f.max_provided_alignment());
+            let alignments = v.body.fields.iter().map(|f| f.max_provided_alignment());
             let sizes = v.body.fields.iter().map(|f| f.min_len());
             quote!{
                 let mut min_align: Option<usize> = #min_align;
@@ -698,7 +701,7 @@ impl FlatSerializeStruct {
     }
 
     fn fn_max_provided_alignment(&self) -> TokenStream2 {
-        let alignments = self.fields.iter().flat_map(|f| f.max_provided_alignment());
+        let alignments = self.fields.iter().map(|f| f.max_provided_alignment());
         quote! {
             const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
                 use std::mem::align_of;
@@ -872,134 +875,112 @@ impl FlatSerializeField {
 
     fn alignment_check(&self, size: &mut TokenStream2, min_align: &mut TokenStream2) -> TokenStream2 {
         use std::mem::replace;
-        if self.flatten {
-            let ty = parser::as_turbofish(&self.ty);
-
-            let new_size = quote!{#size + <#ty as flat_serialize::FlatSerializable>::MIN_LEN};
-            let new_min_align = quote!{
-                match <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
-                    Some(align) => {
-                        if align < #min_align {
-                            align
-                        } else {
-                            #min_align
-                        }
-                    },
-                    None => #min_align
-                }
-            };
-
-            let size = replace(size, new_size);
-            let min_align = replace(min_align, new_min_align);
-            return quote_spanned!{self.ty.span()=>
-                let _alignment_check: () = [()][(#size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
-                let _alignment_check2: () = [()][(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > #min_align) as u8 as usize];
-            }
-        }
         match &self.length_info {
             None => {
-                let ty = &self.ty;
-                let new_size = quote!{#size + size_of::<#ty>()};
+                let ty = self.ty_without_lifetime();
+                let new_size = quote!{#size + <#ty as flat_serialize::FlatSerializable>::MIN_LEN};
+                let new_min_align = quote!{
+                    match <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                        Some(align) => {
+                            if align < #min_align {
+                                align
+                            } else {
+                                #min_align
+                            }
+                        },
+                        None => #min_align
+                    }
+                };
+
                 let size = replace(size, new_size);
+                let min_align = replace(min_align, new_min_align);
                 quote_spanned!{self.ty.span()=>
-                    let _alignment_check= [()][(#size) % align_of::<#ty>()];
-                    let _alignment_check2 = [()][(align_of::<#ty>() > #min_align) as u8 as usize];
-                    let _padding_check = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
+                    let _alignment_check: () = [()][(#size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+                    let _alignment_check2: () = [()][(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > #min_align) as u8 as usize];
                 }
             }
             Some(info) => {
-                let ty = &info.ty;
+                let ty = info.ty_without_lifetime();
                 let new_min_align = quote!{
-                    if align_of::<#ty>() < #min_align {
-                        align_of::<#ty>()
-                    } else {
-                        #min_align
+                    match <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                        Some(align) => {
+                            if align < #min_align {
+                                align
+                            } else {
+                                #min_align
+                            }
+                        },
+                        None => #min_align
                     }
                 };
                 let min_align = replace(min_align, new_min_align);
                 quote_spanned!{self.ty.span()=>
-                    let _alignment_check: () = [()][(#size) % align_of::<#ty>()];
-                    let _alignment_check2: () = [()][(align_of::<#ty>() > #min_align) as u8 as usize];
-                    let _padding_check: () = [()][(size_of::<#ty>() < align_of::<#ty>()) as u8 as usize];
+                    let _alignment_check: () = [()][(#size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+                    let _alignment_check2: () = [()][(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > #min_align) as u8 as usize];
                 }
             }
         }
     }
 
     fn trait_check(&self) -> TokenStream2 {
-        if self.flatten {
-            let ty = parser::as_turbofish(&self.ty);
-            let name = self.ident.as_ref().unwrap();
-            let lifetime = self.is_by_ref().then(|| quote!{ <'static> });
-            // based on static_assertions
-            return quote_spanned!{self.ty.span()=>
-                fn #name<'test, T: flat_serialize::FlatSerializable<'test>>() {}
-                let _ = #name::<#ty #lifetime>;
-            }
-        }
-        let ty = match &self.length_info {
-            None => &self.ty,
-            Some(info) => &info.ty,
-        };
+        let (ty, needs_lifetime) =
+            match (&self.ty_without_lifetime, &self.length_info) {
+                (_, Some(VariableLenFieldInfo{ ty_without_lifetime: Some(ty), .. })) =>
+                    (ty.clone(), true),
+                (_, Some(VariableLenFieldInfo{ ty, .. })) => (quote!{ #ty }, false),
+                (Some(ty), _) => (ty.clone(), true),
+                _ => {
+                    let ty = &self.ty;
+                    (quote!{ #ty }, false)
+                }
+            };
+        let lifetime = needs_lifetime.then(|| quote!{ <'static> });
         let name = self.ident.as_ref().unwrap();
-        return quote_spanned!{ty.span()=>
-            fn #name<'i, T: flat_serialize::FlatSerializable<'i>>() {}
-            let _ = #name::<#ty>;
+        // based on static_assertions
+        // TODO add ConstLen assertion if type is in var-len position?
+        return quote_spanned!{self.ty.span()=>
+            fn #name<'test, T: flat_serialize::FlatSerializable<'test>>() {}
+            let _ = #name::<#ty #lifetime>;
         }
     }
 
     fn required_alignment(&self) -> TokenStream2 {
-        if self.flatten {
-            let ty = parser::as_turbofish(&self.ty);
-            return quote_spanned!{self.ty.span()=>
-                <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
-            }
-        }
-        match &self.length_info {
-            None => {
-                let ty = &self.ty;
-                quote_spanned!{self.ty.span()=>
-                    align_of::<#ty>()
-                }
-            }
-            Some(info) => {
-                let ty = &info.ty;
-                quote_spanned!{self.ty.span()=>
-                    align_of::<#ty>()
-                }
-            }
+        let ty = match &self.length_info {
+            None => self.ty_without_lifetime(),
+            Some(info) => info.ty_without_lifetime(),
+        };
+        quote_spanned!{self.ty.span()=>
+            <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
         }
     }
 
-    fn max_provided_alignment(&self) -> Option<TokenStream2> {
-        if self.flatten {
-            let ty = parser::as_turbofish(&self.ty);
-            return Some(quote_spanned!{self.ty.span()=>
-                <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT
-            })
+    fn max_provided_alignment(&self) -> TokenStream2 {
+        match &self.length_info {
+            None => {
+                let ty = self.ty_without_lifetime();
+                quote_spanned!{self.ty.span()=>
+                    <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT
+                }
+            },
+            Some(info) => {
+                let ty = info.ty_without_lifetime();
+                quote_spanned!{self.ty.span()=>
+                    Some(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT)
+                }
+            },
         }
-        self.length_info.as_ref().map(|info| {
-            let ty = &info.ty;
-            quote_spanned!{self.ty.span()=>
-                Some(align_of::<#ty>())
-            }
-        })
     }
 
     fn min_len(&self) -> TokenStream2 {
-        let ty = &self.ty;
-        if self.flatten {
-            let ty = parser::as_turbofish(ty);
-            return quote_spanned!{self.ty.span()=>
-                <#ty as flat_serialize::FlatSerializable>::MIN_LEN
-            }
-        }
         match &self.length_info {
-            None => quote_spanned!{self.ty.span()=>
-                size_of::<#ty>()
+            None => {
+                let ty = self.ty_without_lifetime();
+                quote_spanned!{self.ty.span()=>
+                    <#ty as flat_serialize::FlatSerializable>::MIN_LEN
+                }
             },
             Some(..) =>
-                quote_spanned!{ty.span()=>
+                quote_spanned!{self.ty.span()=>
                     0
                 },
         }
@@ -1007,7 +988,6 @@ impl FlatSerializeField {
 
     fn try_wrap(&self, break_label: &syn::Lifetime,) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();
-        let base_ty;
         match &self.length_info {
             Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let count = info.len_from_bytes();
@@ -1042,15 +1022,7 @@ impl FlatSerializeField {
             }
             Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
                 let is_present = info.len_from_bytes();
-                let ty =
-                    if self.flatten {
-                        base_ty = parser::as_turbofish(&self.ty);
-                        base_ty
-                    } else {
-                        let ty = &info.ty;
-                        quote!(#ty)
-                    };
-
+                let ty = info.ty_without_lifetime();
                 quote! {
                     if #is_present {
                         let (field, rem) = match <#ty>::try_ref(input) {
@@ -1066,15 +1038,7 @@ impl FlatSerializeField {
                 }
             }
             None => {
-                let ty =
-                    if self.flatten {
-                        base_ty = parser::as_turbofish(&self.ty);
-                        base_ty
-                    } else {
-                        let ty = &self.ty;
-                        quote!(#ty)
-                    };
-
+                let ty = self.ty_without_lifetime();
                 quote!{
                     {
                         let (field, rem) = match <#ty>::try_ref(input) {
@@ -1141,31 +1105,24 @@ impl FlatSerializeField {
     }
 
     fn err_size(&self) -> TokenStream2 {
-        if self.flatten {
-            let ty = parser::as_turbofish(&self.ty);
-            return quote! {
-                <#ty>::MIN_LEN
-            };
-        }
-
         match &self.length_info {
             Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let count = info.err_size_expr();
-                let ty = &info.ty;
+                let ty = info.ty_without_lifetime();
                 quote! {
-                    (|| ::std::mem::size_of::<#ty>() * (#count) as usize)()
+                    (|| <#ty>::MIN_LEN * (#count) as usize)()
                 }
             }
             Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
                 let is_present = info.err_size_expr();
-                let ty = &info.ty;
+                let ty = info.ty_without_lifetime();
                 quote! {
-                    (|| if #is_present { ::std::mem::size_of::<#ty>() } else { 0 })()
+                    (|| if #is_present { <#ty>::MIN_LEN } else { 0 })()
                 }
             }
             None => {
-                let ty = &self.ty;
-                quote! { ::std::mem::size_of::<#ty>() }
+                let ty = &self.ty_without_lifetime();
+                quote! { <#ty>::MIN_LEN }
             },
         }
     }
@@ -1205,13 +1162,13 @@ impl FlatSerializeField {
 
     fn size_fn(&self) -> TokenStream2 {
         let ident = self.ident.as_ref().unwrap();
-        if self.flatten {
-            return quote_spanned!{self.span()=>
-                #ident.len()
-            };
-        }
         match &self.length_info {
             Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
+                if info.ty_without_lifetime.is_some() {
+                    return quote_spanned! {self.ty.span()=>
+                        compile_error!("types with lifetimes are not allowed in variable-length fields")
+                    }
+                }
                 let ty = &info.ty;
                 let count = info.counter_expr();
                 quote! {
@@ -1219,15 +1176,19 @@ impl FlatSerializeField {
                 }
             }
             Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
-                let ty = &info.ty;
+                let ty = self.ty_without_lifetime();
                 let is_present = info.counter_expr();
                 quote! {
-                    (if #is_present {::std::mem::size_of::<#ty>() } else { 0 })
+                    (if #is_present {
+                        <#ty as flat_serialize::FlatSerializable>::len(#ident.as_ref().unwrap())
+                    } else {
+                        0
+                    })
                 }
             }
             None => {
-                let nominal_ty = &self.ty;
-                quote!( ::std::mem::size_of::<#nominal_ty>() )
+                let nominal_ty = self.ty_without_lifetime();
+                quote!( <#nominal_ty as flat_serialize::FlatSerializable>::len(&#ident) )
             }
         }
     }
@@ -1241,14 +1202,9 @@ impl FlatSerializeField {
         let name = self.ident.as_ref().unwrap();
         let attrs = self.attrs.iter();
         let pub_marker = is_pub.then(|| quote!{ pub });
-        if self.flatten {
-            let ty = &self.ty;
-            quote! { #(#attrs)* #pub_marker #name: #ty, }
-        } else {
-            let ty = self.exposed_ty(lifetime);
-            let per_field_attrs = self.per_field_attrs(pf_attrs);
-            quote! { #(#per_field_attrs)* #(#attrs)* #pub_marker #name: #ty, }
-        }
+        let ty = self.exposed_ty(lifetime);
+        let per_field_attrs = self.per_field_attrs(pf_attrs);
+        quote! { #(#per_field_attrs)* #(#attrs)* #pub_marker #name: #ty, }
     }
 
     fn per_field_attrs<'a, 'b: 'a>(
@@ -1267,6 +1223,16 @@ impl FlatSerializeField {
         })
     }
 
+    fn ty_without_lifetime(&self) -> TokenStream2 {
+        match &self.ty_without_lifetime {
+            None => {
+                let ty = &self.ty;
+                quote!{ #ty }
+            },
+            Some(ty) => ty.clone(),
+        }
+    }
+
     fn is_optional(&self) -> bool {
         matches!(self.length_info, Some(VariableLenFieldInfo { is_optional: true, ..}))
     }
@@ -1277,6 +1243,17 @@ impl FlatSerializeField {
     }
 }
 
+impl VariableLenFieldInfo {
+    fn ty_without_lifetime(&self) -> TokenStream2 {
+        match &self.ty_without_lifetime {
+            None => {
+                let ty = &self.ty;
+                quote!{ #ty }
+            },
+            Some(ty) => ty.clone(),
+        }
+    }
+}
 
 #[proc_macro_derive(FlatSerializable)]
 pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
@@ -1378,7 +1355,7 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
         lifetime: None,
         fields: s.fields.into_iter().map(|f| FlatSerializeField {
             field: f,
-            flatten: false,
+            ty_without_lifetime: None,
             length_info: None,
         }).collect(),
     };

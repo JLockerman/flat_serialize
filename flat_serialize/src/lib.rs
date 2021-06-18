@@ -1,6 +1,5 @@
 
 use std::{mem::{MaybeUninit, align_of, size_of}, slice};
-
 #[derive(Debug)]
 pub enum WrapErr {
     NotEnoughBytes(usize),
@@ -363,7 +362,6 @@ mod tests {
         #[derive(Debug)]
         struct Nested<'a> {
             prefix: u64,
-            #[flat_serialize::flatten]
             basic: Basic<'a>,
         }
     }
@@ -625,7 +623,6 @@ mod tests {
 
         flat_serialize!{
             struct NestedNoLifetime {
-                #[flat_serialize::flatten]
                 nested: NoLifetime,
             }
         }
@@ -647,7 +644,6 @@ mod tests {
             enum NestedENoLifetime {
                 tag: i64,
                 Variant: 2 {
-                    #[flat_serialize::flatten]
                     val: ENoLifetime,
                 },
             }
@@ -790,7 +786,6 @@ mod tests {
         check_size_align!(
             struct {
                 a: u32,
-                #[flat_serialize::flatten]
                 b: NestedA,
             }
             len: 4 + (4 + 2),
@@ -801,7 +796,6 @@ mod tests {
         check_size_align!(
             struct {
                 a: u64,
-                #[flat_serialize::flatten]
                 b: NestedA,
             }
             len: 8 + (4 + 2),
@@ -812,7 +806,6 @@ mod tests {
         check_size_align!(
             struct {
                 a: u64,
-                #[flat_serialize::flatten]
                 b: NestedA,
                 c: u8
             }
@@ -823,11 +816,9 @@ mod tests {
 
         check_size_align!(
             struct {
-                #[flat_serialize::flatten]
                 a: NestedA,
                 b: u8,
                 c: u8,
-                #[flat_serialize::flatten]
                 f: NestedA,
             }
             len: (4 + 2) + 1 + 1 + (4 + 2),
@@ -845,7 +836,6 @@ mod tests {
         check_size_align!(
             struct 'a {
                 a: u32,
-                #[flat_serialize::flatten]
                 b: NestedB<'a>,
             }
             len: 4 + (4),
@@ -856,7 +846,6 @@ mod tests {
         check_size_align!(
             struct 'a {
                 a: u64,
-                #[flat_serialize::flatten]
                 b: NestedB<'a>,
             }
             len: 8 + (4),
@@ -867,7 +856,6 @@ mod tests {
         check_size_align!(
             struct 'a {
                 a: u64,
-                #[flat_serialize::flatten]
                 b: NestedB<'a>,
                 c: u8
             }
@@ -882,7 +870,6 @@ mod tests {
                 b: u8,
                 c: u8,
                 d: u8,
-                #[flat_serialize::flatten]
                 e: NestedB<'a>,
             }
             len: 4 + (4),
@@ -908,7 +895,6 @@ mod tests {
 
         check_size_align!(
             struct {
-                #[flat_serialize::flatten]
                 a: EnumA,
             }
             len: (4 + 2),
@@ -918,7 +904,6 @@ mod tests {
 
         check_size_align!(
             struct {
-                #[flat_serialize::flatten]
                 a: EnumA,
                 b: u16,
             }
@@ -930,7 +915,6 @@ mod tests {
         check_size_align!(
             struct {
                 b: u64,
-                #[flat_serialize::flatten]
                 a: EnumA,
             }
             len: 8 + (4 + 2),
@@ -952,7 +936,6 @@ mod tests {
 
         check_size_align!(
             struct {
-                #[flat_serialize::flatten]
                 a: EnumB,
             }
             len: (4 + 2),
@@ -963,7 +946,6 @@ mod tests {
         check_size_align!(
             struct {
                 b: u64,
-                #[flat_serialize::flatten]
                 a: EnumB,
             }
             len: 8 + (4 + 2),
@@ -986,7 +968,6 @@ mod tests {
 
         check_size_align!(
             struct 'a {
-                #[flat_serialize::flatten]
                 a: EnumC<'a>,
             }
             len: (8 + 2),
@@ -996,7 +977,6 @@ mod tests {
 
         check_size_align!(
             struct 'a {
-                #[flat_serialize::flatten]
                 a: EnumC<'a>,
                 b: u16,
             }
@@ -1008,7 +988,6 @@ mod tests {
         check_size_align!(
             struct 'a {
                 b: u64,
-                #[flat_serialize::flatten]
                 a: EnumC<'a>,
             }
             len: 8 + (8 + 2),
@@ -1031,7 +1010,6 @@ mod tests {
 
         check_size_align!(
             struct 'a {
-                #[flat_serialize::flatten]
                 a: EnumD<'a>,
             }
             len: (4 + 2),
@@ -1041,7 +1019,6 @@ mod tests {
 
         check_size_align!(
             struct 'a {
-                #[flat_serialize::flatten]
                 a: EnumD<'a>,
                 b: u8,
             }
@@ -1053,7 +1030,6 @@ mod tests {
         check_size_align!(
             struct 'a {
                 b: u64,
-                #[flat_serialize::flatten]
                 a: EnumD<'a>,
             }
             len: 8 + (4 + 2),
