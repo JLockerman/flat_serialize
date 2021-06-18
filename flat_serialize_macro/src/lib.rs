@@ -178,7 +178,9 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                 #(#fields)*
             }
 
-            #alignment_check
+            // alignment assertions
+            #[allow(unused_assignments)]
+            const _: () = #alignment_check;
 
             #trait_check
 
@@ -360,15 +362,18 @@ impl FlatSerializeEnum {
     }
 
     fn alignment_check(&self) -> TokenStream2 {
-        let mut size = quote! { 0 };
-        let mut min_align = quote! { 8 };
-        let tag_check = self.tag.alignment_check(&mut size, &mut min_align);
+        let size = quote! { 0 };
+        let min_align = quote! { 8 };
+        let tag_check = self.tag.alignment_check();
         let variant_checks = self.variants.iter()
-            .map(|v| v.body.alignment_check(size.clone(), min_align.clone()));
+            .map(|v| v.body.alignment_check(quote!(current_size), quote!(min_align)));
         quote! {
             // alignment assertions
+            #[allow(unused_assignments)]
             const _: () = {
                 use std::mem::{align_of, size_of};
+                let mut current_size = 0;
+                let mut min_align = 8;
                 #tag_check
                 #(#variant_checks)*
             };
@@ -654,23 +659,15 @@ impl FlatSerializeStruct {
         start: TokenStream2,
         min_align: TokenStream2,
     ) -> TokenStream2 {
-        // we create the size/align values as ever-increasing expressions
-        // instead of variables due to the way span info works: we want to use
-        // the span of the inputted type so that errors are reported only at the
-        // type that causes the misalignment, however, if the type is inputted
-        // via a macro, that span will be unable to reference local variables
-        // we create ourselves.
-        let mut size = start;
-        let mut min_align = min_align;
-
-        let checks = self.fields.iter().map(|f| f.alignment_check(&mut size, &mut min_align));
+        let checks = self.fields.iter().map(|f| f.alignment_check());
 
         quote! {
-            // alignment assertions
-            const _: () = {
+            {
                 use std::mem::{align_of, size_of};
+                let mut current_size = #start;
+                let mut min_align = #min_align;
                 #(#checks)*
-            };
+            }
         }
     }
 
@@ -873,50 +870,35 @@ impl FlatSerializeStruct {
 
 impl FlatSerializeField {
 
-    fn alignment_check(&self, size: &mut TokenStream2, min_align: &mut TokenStream2) -> TokenStream2 {
-        use std::mem::replace;
+    fn alignment_check(&self) -> TokenStream2 {
+        let current_size  = quote!(current_size);
+        let min_align  = quote!(min_align);
         match &self.length_info {
             None => {
-                let ty = self.ty_without_lifetime();
-                let new_size = quote!{#size + <#ty as flat_serialize::FlatSerializable>::MIN_LEN};
-                let new_min_align = quote!{
-                    match <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
-                        Some(align) => {
-                            if align < #min_align {
-                                align
-                            } else {
-                                #min_align
-                            }
-                        },
-                        None => #min_align
-                    }
-                };
 
-                let size = replace(size, new_size);
-                let min_align = replace(min_align, new_min_align);
+                let ty = self.ty_without_lifetime();
                 quote_spanned!{self.ty.span()=>
-                    let _alignment_check: () = [()][(#size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+                    let _alignment_check: () = [()][(#current_size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
                     let _alignment_check2: () = [()][(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > #min_align) as u8 as usize];
+                    #current_size += <#ty as flat_serialize::FlatSerializable>::MIN_LEN;
+                    #min_align = match <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                        Some(align) if align < #min_align => align,
+                        _ => #min_align,
+                    };
                 }
             }
             Some(info) => {
                 let ty = info.ty_without_lifetime();
-                let new_min_align = quote!{
-                    match <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
-                        Some(align) => {
-                            if align < #min_align {
-                                align
-                            } else {
-                                #min_align
-                            }
-                        },
-                        None => #min_align
-                    }
-                };
-                let min_align = replace(min_align, new_min_align);
                 quote_spanned!{self.ty.span()=>
-                    let _alignment_check: () = [()][(#size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+                    let _alignment_check: () = [()][(#current_size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
                     let _alignment_check2: () = [()][(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > #min_align) as u8 as usize];
+                    if <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < #min_align {
+                        #min_align = <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+                    }
+                    #min_align = match <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                        Some(align) if align < #min_align => align,
+                        _ => #min_align,
+                    };
                 }
             }
         }
@@ -1236,11 +1218,6 @@ impl FlatSerializeField {
     fn is_optional(&self) -> bool {
         matches!(self.length_info, Some(VariableLenFieldInfo { is_optional: true, ..}))
     }
-
-    fn is_by_ref(&self) -> bool {
-        matches!(self.length_info, Some(VariableLenFieldInfo { is_optional: false, ..}))
-        || parser::has_lifetime(&self.ty)
-    }
 }
 
 impl VariableLenFieldInfo {
@@ -1373,7 +1350,9 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
 
     let out = quote! {
 
-        #alignment_check
+        // alignment assertions
+        #[allow(unused_assignments)]
+        const _: () = #alignment_check;
 
         #trait_check
 

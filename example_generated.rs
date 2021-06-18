@@ -6,64 +6,95 @@ pub struct Basic<'input> {
     pub data: &'input [u8],
     pub data2: &'input [u8],
 }
+#[allow(unused_assignments)]
 const _: () = {
     use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<u64>()];
-    let _alignment_check2 = [()][(align_of::<u64>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<u64>() < align_of::<u64>()) as u8 as usize];
-    let _alignment_check = [()][(0 + size_of::<u64>()) % align_of::<u32>()];
-    let _alignment_check2 = [()][(align_of::<u32>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<u32>() < align_of::<u32>()) as u8 as usize];
-    let _alignment_check = [()][(0 + size_of::<u64>() + size_of::<u32>()) % align_of::<[u16; 3]>()];
-    let _alignment_check2 = [()][(align_of::<[u16; 3]>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<[u16; 3]>() < align_of::<[u16; 3]>()) as u8 as usize];
+    let mut current_size = 0;
+    let mut min_align = 8;
     let _alignment_check: () =
-        [()][(0 + size_of::<u64>() + size_of::<u32>() + size_of::<[u16; 3]>()) % align_of::<u8>()];
-    let _alignment_check2: () = [()][(align_of::<u8>() > 8) as u8 as usize];
-    let _padding_check: () = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
+        [()][(current_size) % <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    current_size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
     let _alignment_check: () =
-        [()][(0 + size_of::<u64>() + size_of::<u32>() + size_of::<[u16; 3]>()) % align_of::<u8>()];
-    let _alignment_check2: () = [()][(align_of::<u8>()
-        > if align_of::<u8>() < 8 {
-            align_of::<u8>()
-        } else {
-            8
-        }) as u8 as usize];
-    let _padding_check: () = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
+        [()][(current_size) % <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    current_size += <u32 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    let _alignment_check: () =
+        [()][(current_size) % <[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()]
+        [(<[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+            as usize];
+    current_size += <[u16; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    let _alignment_check: () =
+        [()][(current_size) % <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()]
+        [(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8 as usize];
+    if <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
+        min_align = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+    }
+    min_align = match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    let _alignment_check: () =
+        [()][(current_size) % <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()]
+        [(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8 as usize];
+    if <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
+        min_align = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+    }
+    min_align = match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
 };
 const _: () = {
-    fn header<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn header<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = header::<u64>;
-    fn data_len<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn data_len<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = data_len::<u32>;
-    fn array<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn array<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = array::<[u16; 3]>;
-    fn data<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn data<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = data::<u8>;
-    fn data2<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn data2<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = data2::<u8>;
 };
 unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
-        let alignment = align_of::<u64>();
+        let alignment = <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = align_of::<u32>();
+        let alignment = <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = align_of::<[u16; 3]>();
+        let alignment = <[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = align_of::<u8>();
+        let alignment = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = align_of::<u8>();
+        let alignment = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
@@ -72,13 +103,46 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (Some(align_of::<u8>()), min_align) {
+        match (
+            <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
+            min_align,
+        ) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        match (Some(align_of::<u8>()), min_align) {
+        match (
+            <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
+            min_align,
+        ) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        match (
+            <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
+            min_align,
+        ) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        match (
+            Some(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
+            min_align,
+        ) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        match (
+            Some(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
+            min_align,
+        ) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
@@ -103,9 +167,9 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
     const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
-        size += size_of::<u64>();
-        size += size_of::<u32>();
-        size += size_of::<[u16; 3]>();
+        size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+        size += <u32 as flat_serialize::FlatSerializable>::MIN_LEN;
+        size += <[u16; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
         size += 0;
         size += 0;
         size
@@ -209,18 +273,18 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
             return Ok((_ref, input));
         }
         Err(flat_serialize::WrapErr::NotEnoughBytes(
-            0 + ::std::mem::size_of::<u64>()
-                + ::std::mem::size_of::<u32>()
-                + ::std::mem::size_of::<[u16; 3]>()
+            0 + <u64>::MIN_LEN
+                + <u32>::MIN_LEN
+                + <[u16; 3]>::MIN_LEN
                 + (|| {
-                    ::std::mem::size_of::<u8>()
+                    <u8>::MIN_LEN
                         * (match data_len {
                             Some(data_len) => data_len,
                             None => return 0usize,
                         }) as usize
                 })()
                 + (|| {
-                    ::std::mem::size_of::<u8>()
+                    <u8>::MIN_LEN
                         * (match data_len {
                             Some(data_len) => data_len,
                             None => return 0usize,
@@ -298,9 +362,9 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
             data2,
         } = self;
         0usize
-            + ::std::mem::size_of::<u64>()
-            + ::std::mem::size_of::<u32>()
-            + ::std::mem::size_of::<[u16; 3]>()
+            + <u64 as flat_serialize::FlatSerializable>::len(&header)
+            + <u32 as flat_serialize::FlatSerializable>::len(&data_len)
+            + <[u16; 3] as flat_serialize::FlatSerializable>::len(&array)
             + (::std::mem::size_of::<u8>() * (data_len) as usize)
             + (::std::mem::size_of::<u8>() * ((data_len) / 2) as usize)
     }
@@ -311,44 +375,62 @@ pub struct Optional {
     pub optional_field: Option<u32>,
     pub non_optional_field: u16,
 }
+#[allow(unused_assignments)]
 const _: () = {
     use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<u64>()];
-    let _alignment_check2 = [()][(align_of::<u64>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<u64>() < align_of::<u64>()) as u8 as usize];
-    let _alignment_check: () = [()][(0 + size_of::<u64>()) % align_of::<u32>()];
-    let _alignment_check2: () = [()][(align_of::<u32>() > 8) as u8 as usize];
-    let _padding_check: () = [()][(size_of::<u32>() < align_of::<u32>()) as u8 as usize];
-    let _alignment_check = [()][(0 + size_of::<u64>()) % align_of::<u16>()];
-    let _alignment_check2 = [()][(align_of::<u16>()
-        > if align_of::<u32>() < 8 {
-            align_of::<u32>()
-        } else {
-            8
-        }) as u8 as usize];
-    let _padding_check = [()][(size_of::<u16>() < align_of::<u16>()) as u8 as usize];
+    let mut current_size = 0;
+    let mut min_align = 8;
+    let _alignment_check: () =
+        [()][(current_size) % <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    current_size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    let _alignment_check: () =
+        [()][(current_size) % <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    if <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
+        min_align = <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+    }
+    min_align = match <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    let _alignment_check: () =
+        [()][(current_size) % <u16 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u16 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    current_size += <u16 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u16 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
 };
 const _: () = {
-    fn header<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn header<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = header::<u64>;
-    fn optional_field<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn optional_field<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = optional_field::<u32>;
-    fn non_optional_field<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn non_optional_field<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = non_optional_field::<u16>;
 };
 unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Optional {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
-        let alignment = align_of::<u64>();
+        let alignment = <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = align_of::<u32>();
+        let alignment = <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = align_of::<u16>();
+        let alignment = <u16 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
@@ -357,7 +439,28 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Optional {
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (Some(align_of::<u32>()), min_align) {
+        match (
+            <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
+            min_align,
+        ) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        match (
+            Some(<u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
+            min_align,
+        ) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        match (
+            <u16 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
+            min_align,
+        ) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
@@ -382,9 +485,9 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Optional {
     const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
-        size += size_of::<u64>();
+        size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
         size += 0;
-        size += size_of::<u16>();
+        size += <u16 as flat_serialize::FlatSerializable>::MIN_LEN;
         size
     };
     const TRIVIAL_COPY: bool = false;
@@ -446,19 +549,19 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Optional {
             return Ok((_ref, input));
         }
         Err(flat_serialize::WrapErr::NotEnoughBytes(
-            0 + ::std::mem::size_of::<u64>()
+            0 + <u64>::MIN_LEN
                 + (|| {
                     if match header {
                         Some(header) => header,
                         None => return 0usize,
                     } != 1
                     {
-                        ::std::mem::size_of::<u32>()
+                        <u32>::MIN_LEN
                     } else {
                         0
                     }
                 })()
-                + ::std::mem::size_of::<u16>(),
+                + <u16>::MIN_LEN,
         ))
     }
     #[allow(unused_assignments, unused_variables)]
@@ -498,13 +601,13 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Optional {
             non_optional_field,
         } = self;
         0usize
-            + ::std::mem::size_of::<u64>()
+            + <u64 as flat_serialize::FlatSerializable>::len(&header)
             + (if (header) != 1 {
-                ::std::mem::size_of::<u32>()
+                <u32 as flat_serialize::FlatSerializable>::len(optional_field.as_ref().unwrap())
             } else {
                 0
             })
-            + ::std::mem::size_of::<u16>()
+            + <u16 as flat_serialize::FlatSerializable>::len(&non_optional_field)
     }
 }
 #[derive(Copy, Clone, Debug)]
@@ -512,18 +615,33 @@ pub struct Nested<'a> {
     pub prefix: u64,
     pub basic: Basic<'a>,
 }
+#[allow(unused_assignments)]
 const _: () = {
     use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<u64>()];
-    let _alignment_check2 = [()][(align_of::<u64>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<u64>() < align_of::<u64>()) as u8 as usize];
-    let _alignment_check: () = [()]
-        [(0 + size_of::<u64>()) % <Basic as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
-    let _alignment_check2: () =
-        [()][(<Basic as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
+    let mut current_size = 0;
+    let mut min_align = 8;
+    let _alignment_check: () =
+        [()][(current_size) % <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    current_size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    let _alignment_check: () =
+        [()][(current_size) % <Basic as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()]
+        [(<Basic as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+            as usize];
+    current_size += <Basic as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <Basic as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
 };
 const _: () = {
-    fn prefix<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn prefix<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = prefix::<u64>;
     fn basic<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = basic::<Basic<'static>>;
@@ -532,7 +650,7 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
-        let alignment = align_of::<u64>();
+        let alignment = <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
@@ -545,6 +663,15 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
+        match (
+            <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
+            min_align,
+        ) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
         match (
             <Basic as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
             min_align,
@@ -573,7 +700,7 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
     const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
-        size += size_of::<u64>();
+        size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
         size += <Basic as flat_serialize::FlatSerializable>::MIN_LEN;
         size
     };
@@ -621,7 +748,7 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
             return Ok((_ref, input));
         }
         Err(flat_serialize::WrapErr::NotEnoughBytes(
-            0 + ::std::mem::size_of::<u64>() + <Basic>::MIN_LEN,
+            0 + <u64>::MIN_LEN + <Basic>::MIN_LEN,
         ))
     }
     #[allow(unused_assignments, unused_variables)]
@@ -646,7 +773,9 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
     #[inline(always)]
     fn len(&self) -> usize {
         let &Nested { prefix, basic } = self;
-        0usize + ::std::mem::size_of::<u64>() + basic.len()
+        0usize
+            + <u64 as flat_serialize::FlatSerializable>::len(&prefix)
+            + <Basic as flat_serialize::FlatSerializable>::len(&basic)
     }
 }
 #[derive(Copy, Clone, Debug)]
@@ -654,27 +783,62 @@ pub enum BasicEnum<'input> {
     First { data_len: u32, data: &'input [u8] },
     Fixed { array: [u16; 3] },
 }
+#[allow(unused_assignments)]
 const _: () = {
     use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<u64>()];
-    let _alignment_check2 = [()][(align_of::<u64>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<u64>() < align_of::<u64>()) as u8 as usize];
-    const _: () = {
+    let mut current_size = 0;
+    let mut min_align = 8;
+    let _alignment_check: () =
+        [()][(current_size) % <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    current_size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    {
         use std::mem::{align_of, size_of};
-        let _alignment_check = [()][(0 + size_of::<u64>()) % align_of::<u32>()];
-        let _alignment_check2 = [()][(align_of::<u32>() > 8) as u8 as usize];
-        let _padding_check = [()][(size_of::<u32>() < align_of::<u32>()) as u8 as usize];
+        let mut current_size = current_size;
+        let mut min_align = min_align;
         let _alignment_check: () =
-            [()][(0 + size_of::<u64>() + size_of::<u32>()) % align_of::<u8>()];
-        let _alignment_check2: () = [()][(align_of::<u8>() > 8) as u8 as usize];
-        let _padding_check: () = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
-    };
-    const _: () = {
+            [()][(current_size) % <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+                as usize];
+        current_size += <u32 as flat_serialize::FlatSerializable>::MIN_LEN;
+        min_align = match <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+            Some(align) if align < min_align => align,
+            _ => min_align,
+        };
+        let _alignment_check: () =
+            [()][(current_size) % <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+                as usize];
+        if <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
+            min_align = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        }
+        min_align = match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+            Some(align) if align < min_align => align,
+            _ => min_align,
+        };
+    }
+    {
         use std::mem::{align_of, size_of};
-        let _alignment_check = [()][(0 + size_of::<u64>()) % align_of::<[u16; 3]>()];
-        let _alignment_check2 = [()][(align_of::<[u16; 3]>() > 8) as u8 as usize];
-        let _padding_check = [()][(size_of::<[u16; 3]>() < align_of::<[u16; 3]>()) as u8 as usize];
-    };
+        let mut current_size = current_size;
+        let mut min_align = min_align;
+        let _alignment_check: () = [()]
+            [(current_size) % <[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+                as usize];
+        current_size += <[u16; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
+        min_align = match <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+            Some(align) if align < min_align => align,
+            _ => min_align,
+        };
+    }
 };
 const _: () = {
     #[allow(dead_code)]
@@ -684,19 +848,19 @@ const _: () = {
     }
 };
 const _: () = {
-    fn k<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn k<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = k::<u64>;
     const _: () = {
         const _: () = {
-            fn data_len<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+            fn data_len<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = data_len::<u32>;
-            fn data<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+            fn data<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = data::<u8>;
         };
     };
     const _: () = {
         const _: () = {
-            fn array<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+            fn array<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = array::<[u16; 3]>;
         };
     };
@@ -704,14 +868,16 @@ const _: () = {
 unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'input> {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
-        let mut required_alignment: usize = align_of::<u64>();
+        let mut required_alignment: usize =
+            <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         let alignment: usize = {
-            let mut required_alignment = align_of::<u64>();
-            let alignment = align_of::<u32>();
+            let mut required_alignment =
+                <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+            let alignment = <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
-            let alignment = align_of::<u8>();
+            let alignment = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
@@ -721,8 +887,9 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
             required_alignment = alignment;
         }
         let alignment: usize = {
-            let mut required_alignment = align_of::<u64>();
-            let alignment = align_of::<[u16; 3]>();
+            let mut required_alignment =
+                <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+            let alignment = <[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
@@ -735,20 +902,37 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
     };
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::{align_of, size_of};
-        let mut min_align: usize = match Some(8) {
-            None => 8,
-            Some(align) => align,
-        };
+        let mut min_align: usize =
+            match match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                Some(a) => Some(a),
+                None => Some(8),
+            } {
+                None => 8,
+                Some(align) => align,
+            };
         let variant_alignment: usize = {
-            let mut min_align: Option<usize> = Some(8);
-            let alignment = { Some(align_of::<u8>()) };
+            let mut min_align: Option<usize> =
+                match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                    Some(a) => Some(a),
+                    None => Some(8),
+                };
+            let alignment = { <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
                 (Some(align), Some(min)) if align < min => min_align = Some(align),
                 _ => (),
             }
-            let variant_size: usize = size_of::<u64>() + size_of::<u32>() + 0;
+            let alignment = { Some(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT) };
+            match (alignment, min_align) {
+                (None, _) => (),
+                (Some(align), None) => min_align = Some(align),
+                (Some(align), Some(min)) if align < min => min_align = Some(align),
+                _ => (),
+            }
+            let variant_size: usize = <u64 as flat_serialize::FlatSerializable>::MIN_LEN
+                + <u32 as flat_serialize::FlatSerializable>::MIN_LEN
+                + 0;
             let effective_alignment = match min_align {
                 Some(align) => align,
                 None => 8,
@@ -767,8 +951,21 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
             min_align = variant_alignment
         }
         let variant_alignment: usize = {
-            let mut min_align: Option<usize> = Some(8);
-            let variant_size: usize = size_of::<u64>() + size_of::<[u16; 3]>();
+            let mut min_align: Option<usize> =
+                match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                    Some(a) => Some(a),
+                    None => Some(8),
+                };
+            let alignment =
+                { <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            match (alignment, min_align) {
+                (None, _) => (),
+                (Some(align), None) => min_align = Some(align),
+                (Some(align), Some(min)) if align < min => min_align = Some(align),
+                _ => (),
+            }
+            let variant_size: usize = <u64 as flat_serialize::FlatSerializable>::MIN_LEN
+                + <[u16; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
             let effective_alignment = match min_align {
                 Some(align) => align,
                 None => 8,
@@ -801,8 +998,8 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
         use std::mem::size_of;
         let mut size: Option<usize> = None;
         let variant_size = {
-            let mut size: usize = size_of::<u64>();
-            size += size_of::<u32>();
+            let mut size: usize = <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+            size += <u32 as flat_serialize::FlatSerializable>::MIN_LEN;
             size += 0;
             size
         };
@@ -812,8 +1009,8 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
             Some(size) => Some(size),
         };
         let variant_size = {
-            let mut size: usize = size_of::<u64>();
-            size += size_of::<[u16; 3]>();
+            let mut size: usize = <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+            size += <[u16; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
             size
         };
         size = match size {
@@ -823,7 +1020,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
         };
         match size {
             Some(size) => size,
-            None => size_of::<u64>(),
+            None => <u64 as flat_serialize::FlatSerializable>::MIN_LEN,
         }
     };
     const TRIVIAL_COPY: bool = false;
@@ -891,9 +1088,9 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
                     }
                     return Err(flat_serialize::WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u64>()
-                            + ::std::mem::size_of::<u32>()
+                            + <u32>::MIN_LEN
                             + (|| {
-                                ::std::mem::size_of::<u8>()
+                                <u8>::MIN_LEN
                                     * (match data_len {
                                         Some(data_len) => data_len,
                                         None => return 0usize,
@@ -923,7 +1120,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
                         return Ok((_ref, input));
                     }
                     return Err(flat_serialize::WrapErr::NotEnoughBytes(
-                        std::mem::size_of::<u64>() + ::std::mem::size_of::<[u16; 3]>(),
+                        std::mem::size_of::<u64>() + <[u16; 3]>::MIN_LEN,
                     ));
                 }
                 _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
@@ -985,11 +1182,12 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
         match self {
             &BasicEnum::First { data_len, data } => {
                 ::std::mem::size_of::<u64>()
-                    + ::std::mem::size_of::<u32>()
+                    + <u32 as flat_serialize::FlatSerializable>::len(&data_len)
                     + (::std::mem::size_of::<u8>() * (data_len) as usize)
             }
             &BasicEnum::Fixed { array } => {
-                ::std::mem::size_of::<u64>() + ::std::mem::size_of::<[u16; 3]>()
+                ::std::mem::size_of::<u64>()
+                    + <[u16; 3] as flat_serialize::FlatSerializable>::len(&array)
             }
         }
     }
@@ -1006,35 +1204,82 @@ pub enum PaddedEnum<'input> {
         array: [u16; 3],
     },
 }
+#[allow(unused_assignments)]
 const _: () = {
     use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<u8>()];
-    let _alignment_check2 = [()][(align_of::<u8>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
-    const _: () = {
+    let mut current_size = 0;
+    let mut min_align = 8;
+    let _alignment_check: () =
+        [()][(current_size) % <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()]
+        [(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8 as usize];
+    current_size += <u8 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    {
         use std::mem::{align_of, size_of};
-        let _alignment_check = [()][(0 + size_of::<u8>()) % align_of::<[u8; 3]>()];
-        let _alignment_check2 = [()][(align_of::<[u8; 3]>() > 8) as u8 as usize];
-        let _padding_check = [()][(size_of::<[u8; 3]>() < align_of::<[u8; 3]>()) as u8 as usize];
-        let _alignment_check =
-            [()][(0 + size_of::<u8>() + size_of::<[u8; 3]>()) % align_of::<u32>()];
-        let _alignment_check2 = [()][(align_of::<u32>() > 8) as u8 as usize];
-        let _padding_check = [()][(size_of::<u32>() < align_of::<u32>()) as u8 as usize];
+        let mut current_size = current_size;
+        let mut min_align = min_align;
         let _alignment_check: () = [()]
-            [(0 + size_of::<u8>() + size_of::<[u8; 3]>() + size_of::<u32>()) % align_of::<u8>()];
-        let _alignment_check2: () = [()][(align_of::<u8>() > 8) as u8 as usize];
-        let _padding_check: () = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
-    };
-    const _: () = {
+            [(current_size) % <[u8; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<[u8; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+                as usize];
+        current_size += <[u8; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
+        min_align = match <[u8; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+            Some(align) if align < min_align => align,
+            _ => min_align,
+        };
+        let _alignment_check: () =
+            [()][(current_size) % <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+                as usize];
+        current_size += <u32 as flat_serialize::FlatSerializable>::MIN_LEN;
+        min_align = match <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+            Some(align) if align < min_align => align,
+            _ => min_align,
+        };
+        let _alignment_check: () =
+            [()][(current_size) % <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+                as usize];
+        if <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
+            min_align = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        }
+        min_align = match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+            Some(align) if align < min_align => align,
+            _ => min_align,
+        };
+    }
+    {
         use std::mem::{align_of, size_of};
-        let _alignment_check = [()][(0 + size_of::<u8>()) % align_of::<u8>()];
-        let _alignment_check2 = [()][(align_of::<u8>() > 8) as u8 as usize];
-        let _padding_check = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
-        let _alignment_check =
-            [()][(0 + size_of::<u8>() + size_of::<u8>()) % align_of::<[u16; 3]>()];
-        let _alignment_check2 = [()][(align_of::<[u16; 3]>() > 8) as u8 as usize];
-        let _padding_check = [()][(size_of::<[u16; 3]>() < align_of::<[u16; 3]>()) as u8 as usize];
-    };
+        let mut current_size = current_size;
+        let mut min_align = min_align;
+        let _alignment_check: () =
+            [()][(current_size) % <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+                as usize];
+        current_size += <u8 as flat_serialize::FlatSerializable>::MIN_LEN;
+        min_align = match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+            Some(align) if align < min_align => align,
+            _ => min_align,
+        };
+        let _alignment_check: () = [()]
+            [(current_size) % <[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+                as usize];
+        current_size += <[u16; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
+        min_align = match <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+            Some(align) if align < min_align => align,
+            _ => min_align,
+        };
+    }
 };
 const _: () = {
     #[allow(dead_code)]
@@ -1044,23 +1289,23 @@ const _: () = {
     }
 };
 const _: () = {
-    fn k<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+    fn k<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = k::<u8>;
     const _: () = {
         const _: () = {
-            fn padding<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+            fn padding<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = padding::<[u8; 3]>;
-            fn data_len<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+            fn data_len<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = data_len::<u32>;
-            fn data<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+            fn data<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = data::<u8>;
         };
     };
     const _: () = {
         const _: () = {
-            fn padding<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+            fn padding<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = padding::<u8>;
-            fn array<'i, T: flat_serialize::FlatSerializable<'i>>() {}
+            fn array<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = array::<[u16; 3]>;
         };
     };
@@ -1068,18 +1313,20 @@ const _: () = {
 unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'input> {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
-        let mut required_alignment: usize = align_of::<u8>();
+        let mut required_alignment: usize =
+            <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         let alignment: usize = {
-            let mut required_alignment = align_of::<u8>();
-            let alignment = align_of::<[u8; 3]>();
+            let mut required_alignment =
+                <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+            let alignment = <[u8; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
-            let alignment = align_of::<u32>();
+            let alignment = <u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
-            let alignment = align_of::<u8>();
+            let alignment = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
@@ -1089,12 +1336,13 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
             required_alignment = alignment;
         }
         let alignment: usize = {
-            let mut required_alignment = align_of::<u8>();
-            let alignment = align_of::<u8>();
+            let mut required_alignment =
+                <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+            let alignment = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
-            let alignment = align_of::<[u16; 3]>();
+            let alignment = <[u16; 3] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
@@ -1107,20 +1355,46 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
     };
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::{align_of, size_of};
-        let mut min_align: usize = match Some(8) {
-            None => 8,
-            Some(align) => align,
-        };
+        let mut min_align: usize =
+            match match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                Some(a) => Some(a),
+                None => Some(8),
+            } {
+                None => 8,
+                Some(align) => align,
+            };
         let variant_alignment: usize = {
-            let mut min_align: Option<usize> = Some(8);
-            let alignment = { Some(align_of::<u8>()) };
+            let mut min_align: Option<usize> =
+                match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                    Some(a) => Some(a),
+                    None => Some(8),
+                };
+            let alignment =
+                { <[u8; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
                 (Some(align), Some(min)) if align < min => min_align = Some(align),
                 _ => (),
             }
-            let variant_size: usize = size_of::<u8>() + size_of::<[u8; 3]>() + size_of::<u32>() + 0;
+            let alignment = { <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            match (alignment, min_align) {
+                (None, _) => (),
+                (Some(align), None) => min_align = Some(align),
+                (Some(align), Some(min)) if align < min => min_align = Some(align),
+                _ => (),
+            }
+            let alignment = { Some(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT) };
+            match (alignment, min_align) {
+                (None, _) => (),
+                (Some(align), None) => min_align = Some(align),
+                (Some(align), Some(min)) if align < min => min_align = Some(align),
+                _ => (),
+            }
+            let variant_size: usize = <u8 as flat_serialize::FlatSerializable>::MIN_LEN
+                + <[u8; 3] as flat_serialize::FlatSerializable>::MIN_LEN
+                + <u32 as flat_serialize::FlatSerializable>::MIN_LEN
+                + 0;
             let effective_alignment = match min_align {
                 Some(align) => align,
                 None => 8,
@@ -1139,8 +1413,29 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
             min_align = variant_alignment
         }
         let variant_alignment: usize = {
-            let mut min_align: Option<usize> = Some(8);
-            let variant_size: usize = size_of::<u8>() + size_of::<u8>() + size_of::<[u16; 3]>();
+            let mut min_align: Option<usize> =
+                match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+                    Some(a) => Some(a),
+                    None => Some(8),
+                };
+            let alignment = { <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            match (alignment, min_align) {
+                (None, _) => (),
+                (Some(align), None) => min_align = Some(align),
+                (Some(align), Some(min)) if align < min => min_align = Some(align),
+                _ => (),
+            }
+            let alignment =
+                { <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            match (alignment, min_align) {
+                (None, _) => (),
+                (Some(align), None) => min_align = Some(align),
+                (Some(align), Some(min)) if align < min => min_align = Some(align),
+                _ => (),
+            }
+            let variant_size: usize = <u8 as flat_serialize::FlatSerializable>::MIN_LEN
+                + <u8 as flat_serialize::FlatSerializable>::MIN_LEN
+                + <[u16; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
             let effective_alignment = match min_align {
                 Some(align) => align,
                 None => 8,
@@ -1173,9 +1468,9 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
         use std::mem::size_of;
         let mut size: Option<usize> = None;
         let variant_size = {
-            let mut size: usize = size_of::<u8>();
-            size += size_of::<[u8; 3]>();
-            size += size_of::<u32>();
+            let mut size: usize = <u8 as flat_serialize::FlatSerializable>::MIN_LEN;
+            size += <[u8; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
+            size += <u32 as flat_serialize::FlatSerializable>::MIN_LEN;
             size += 0;
             size
         };
@@ -1185,9 +1480,9 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
             Some(size) => Some(size),
         };
         let variant_size = {
-            let mut size: usize = size_of::<u8>();
-            size += size_of::<u8>();
-            size += size_of::<[u16; 3]>();
+            let mut size: usize = <u8 as flat_serialize::FlatSerializable>::MIN_LEN;
+            size += <u8 as flat_serialize::FlatSerializable>::MIN_LEN;
+            size += <[u16; 3] as flat_serialize::FlatSerializable>::MIN_LEN;
             size
         };
         size = match size {
@@ -1197,7 +1492,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
         };
         match size {
             Some(size) => size,
-            None => size_of::<u8>(),
+            None => <u8 as flat_serialize::FlatSerializable>::MIN_LEN,
         }
     };
     const TRIVIAL_COPY: bool = false;
@@ -1280,10 +1575,10 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                     }
                     return Err(flat_serialize::WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u8>()
-                            + ::std::mem::size_of::<[u8; 3]>()
-                            + ::std::mem::size_of::<u32>()
+                            + <[u8; 3]>::MIN_LEN
+                            + <u32>::MIN_LEN
                             + (|| {
-                                ::std::mem::size_of::<u8>()
+                                <u8>::MIN_LEN
                                     * (match data_len {
                                         Some(data_len) => data_len,
                                         None => return 0usize,
@@ -1328,9 +1623,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                         return Ok((_ref, input));
                     }
                     return Err(flat_serialize::WrapErr::NotEnoughBytes(
-                        std::mem::size_of::<u8>()
-                            + ::std::mem::size_of::<u8>()
-                            + ::std::mem::size_of::<[u16; 3]>(),
+                        std::mem::size_of::<u8>() + <u8>::MIN_LEN + <[u16; 3]>::MIN_LEN,
                     ));
                 }
                 _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
@@ -1406,774 +1699,15 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                 data,
             } => {
                 ::std::mem::size_of::<u8>()
-                    + ::std::mem::size_of::<[u8; 3]>()
-                    + ::std::mem::size_of::<u32>()
+                    + <[u8; 3] as flat_serialize::FlatSerializable>::len(&padding)
+                    + <u32 as flat_serialize::FlatSerializable>::len(&data_len)
                     + (::std::mem::size_of::<u8>() * (data_len) as usize)
             }
             &PaddedEnum::Fixed { padding, array } => {
                 ::std::mem::size_of::<u8>()
-                    + ::std::mem::size_of::<u8>()
-                    + ::std::mem::size_of::<[u16; 3]>()
+                    + <u8 as flat_serialize::FlatSerializable>::len(&padding)
+                    + <[u16; 3] as flat_serialize::FlatSerializable>::len(&array)
             }
-        }
-    }
-}
-#[derive(Copy, Clone, Debug)]
-pub struct InMacro {
-    pub a: u32,
-    pub padding: [u8; 4],
-    pub b: f64,
-}
-const _: () = {
-    use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<u32>()];
-    let _alignment_check2 = [()][(align_of::<u32>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<u32>() < align_of::<u32>()) as u8 as usize];
-    let _alignment_check = [()][(0 + size_of::<u32>()) % align_of::<[u8; 4]>()];
-    let _alignment_check2 = [()][(align_of::<[u8; 4]>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<[u8; 4]>() < align_of::<[u8; 4]>()) as u8 as usize];
-    let _alignment_check = [()][(0 + size_of::<u32>() + size_of::<[u8; 4]>()) % align_of::<f64>()];
-    let _alignment_check2 = [()][(align_of::<f64>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<f64>() < align_of::<f64>()) as u8 as usize];
-};
-const _: () = {
-    fn a<'i, T: flat_serialize::FlatSerializable<'i>>() {}
-    let _ = a::<u32>;
-    fn padding<'i, T: flat_serialize::FlatSerializable<'i>>() {}
-    let _ = padding::<[u8; 4]>;
-    fn b<'i, T: flat_serialize::FlatSerializable<'i>>() {}
-    let _ = b::<f64>;
-};
-unsafe impl<'a> flat_serialize::FlatSerializable<'a> for InMacro {
-    const REQUIRED_ALIGNMENT: usize = {
-        use std::mem::align_of;
-        let mut required_alignment = 1;
-        let alignment = align_of::<u32>();
-        if alignment > required_alignment {
-            required_alignment = alignment;
-        }
-        let alignment = align_of::<[u8; 4]>();
-        if alignment > required_alignment {
-            required_alignment = alignment;
-        }
-        let alignment = align_of::<f64>();
-        if alignment > required_alignment {
-            required_alignment = alignment;
-        }
-        required_alignment
-    };
-    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
-        use std::mem::align_of;
-        let mut min_align: Option<usize> = None;
-        match min_align {
-            None => None,
-            Some(min_align) => {
-                let min_size = Self::MIN_LEN;
-                if min_size % 8 == 0 && min_align >= 8 {
-                    Some(8)
-                } else if min_size % 4 == 0 && min_align >= 4 {
-                    Some(4)
-                } else if min_size % 2 == 0 && min_align >= 2 {
-                    Some(2)
-                } else {
-                    Some(1)
-                }
-            }
-        }
-    };
-    const MIN_LEN: usize = {
-        use std::mem::size_of;
-        let mut size = 0;
-        size += size_of::<u32>();
-        size += size_of::<[u8; 4]>();
-        size += size_of::<f64>();
-        size
-    };
-    const TRIVIAL_COPY: bool = false;
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
-        if input.len() < Self::MIN_LEN {
-            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
-        }
-        let __packet_macro_read_len = 0usize;
-        let mut a: Option<u32> = None;
-        let mut padding: Option<[u8; 4]> = None;
-        let mut b: Option<f64> = None;
-        'tryref: loop {
-            {
-                let (field, rem) = match <u32>::try_ref(input) {
-                    Ok((f, b)) => (f, b),
-                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                        return Err(flat_serialize::WrapErr::InvalidTag(
-                            __packet_macro_read_len + offset,
-                        ))
-                    }
-                    Err(..) => break 'tryref,
-                };
-                input = rem;
-                a = Some(field);
-            }
-            {
-                let (field, rem) = match <[u8; 4]>::try_ref(input) {
-                    Ok((f, b)) => (f, b),
-                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                        return Err(flat_serialize::WrapErr::InvalidTag(
-                            __packet_macro_read_len + offset,
-                        ))
-                    }
-                    Err(..) => break 'tryref,
-                };
-                input = rem;
-                padding = Some(field);
-            }
-            {
-                let (field, rem) = match <f64>::try_ref(input) {
-                    Ok((f, b)) => (f, b),
-                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                        return Err(flat_serialize::WrapErr::InvalidTag(
-                            __packet_macro_read_len + offset,
-                        ))
-                    }
-                    Err(..) => break 'tryref,
-                };
-                input = rem;
-                b = Some(field);
-            }
-            let _ref = InMacro {
-                a: a.unwrap(),
-                padding: padding.unwrap(),
-                b: b.unwrap(),
-            };
-            return Ok((_ref, input));
-        }
-        Err(flat_serialize::WrapErr::NotEnoughBytes(
-            0 + ::std::mem::size_of::<u32>()
-                + ::std::mem::size_of::<[u8; 4]>()
-                + ::std::mem::size_of::<f64>(),
-        ))
-    }
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    unsafe fn fill_slice<'out>(
-        &self,
-        input: &'out mut [std::mem::MaybeUninit<u8>],
-    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
-        let total_len = self.len();
-        let (mut input, rem) = input.split_at_mut(total_len);
-        let &InMacro { a, padding, b } = self;
-        unsafe {
-            input = a.fill_slice(input);
-        };
-        unsafe {
-            input = padding.fill_slice(input);
-        };
-        unsafe {
-            input = b.fill_slice(input);
-        }
-        debug_assert_eq!(input.len(), 0);
-        rem
-    }
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    fn len(&self) -> usize {
-        let &InMacro { a, padding, b } = self;
-        0usize
-            + ::std::mem::size_of::<u32>()
-            + ::std::mem::size_of::<[u8; 4]>()
-            + ::std::mem::size_of::<f64>()
-    }
-}
-#[derive(Copy, Clone)]
-pub struct NoLifetime {
-    pub val: i64,
-}
-const _: () = {
-    use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<i64>()];
-    let _alignment_check2 = [()][(align_of::<i64>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
-};
-const _: () = {
-    fn val<'i, T: flat_serialize::FlatSerializable<'i>>() {}
-    let _ = val::<i64>;
-};
-unsafe impl<'a> flat_serialize::FlatSerializable<'a> for NoLifetime {
-    const REQUIRED_ALIGNMENT: usize = {
-        use std::mem::align_of;
-        let mut required_alignment = 1;
-        let alignment = align_of::<i64>();
-        if alignment > required_alignment {
-            required_alignment = alignment;
-        }
-        required_alignment
-    };
-    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
-        use std::mem::align_of;
-        let mut min_align: Option<usize> = None;
-        match min_align {
-            None => None,
-            Some(min_align) => {
-                let min_size = Self::MIN_LEN;
-                if min_size % 8 == 0 && min_align >= 8 {
-                    Some(8)
-                } else if min_size % 4 == 0 && min_align >= 4 {
-                    Some(4)
-                } else if min_size % 2 == 0 && min_align >= 2 {
-                    Some(2)
-                } else {
-                    Some(1)
-                }
-            }
-        }
-    };
-    const MIN_LEN: usize = {
-        use std::mem::size_of;
-        let mut size = 0;
-        size += size_of::<i64>();
-        size
-    };
-    const TRIVIAL_COPY: bool = false;
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
-        if input.len() < Self::MIN_LEN {
-            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
-        }
-        let __packet_macro_read_len = 0usize;
-        let mut val: Option<i64> = None;
-        'tryref: loop {
-            {
-                let (field, rem) = match <i64>::try_ref(input) {
-                    Ok((f, b)) => (f, b),
-                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                        return Err(flat_serialize::WrapErr::InvalidTag(
-                            __packet_macro_read_len + offset,
-                        ))
-                    }
-                    Err(..) => break 'tryref,
-                };
-                input = rem;
-                val = Some(field);
-            }
-            let _ref = NoLifetime { val: val.unwrap() };
-            return Ok((_ref, input));
-        }
-        Err(flat_serialize::WrapErr::NotEnoughBytes(
-            0 + ::std::mem::size_of::<i64>(),
-        ))
-    }
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    unsafe fn fill_slice<'out>(
-        &self,
-        input: &'out mut [std::mem::MaybeUninit<u8>],
-    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
-        let total_len = self.len();
-        let (mut input, rem) = input.split_at_mut(total_len);
-        let &NoLifetime { val } = self;
-        unsafe {
-            input = val.fill_slice(input);
-        }
-        debug_assert_eq!(input.len(), 0);
-        rem
-    }
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    fn len(&self) -> usize {
-        let &NoLifetime { val } = self;
-        0usize + ::std::mem::size_of::<i64>()
-    }
-}
-#[derive(Copy, Clone)]
-pub struct NestedNoLifetime {
-    pub nested: NoLifetime,
-}
-const _: () = {
-    use std::mem::{align_of, size_of};
-    let _alignment_check: () =
-        [()][(0) % <NoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
-    let _alignment_check2: () = [()]
-        [(<NoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
-};
-const _: () = {
-    fn nested<'test, T: flat_serialize::FlatSerializable<'test>>() {}
-    let _ = nested::<NoLifetime>;
-};
-unsafe impl<'a> flat_serialize::FlatSerializable<'a> for NestedNoLifetime {
-    const REQUIRED_ALIGNMENT: usize = {
-        use std::mem::align_of;
-        let mut required_alignment = 1;
-        let alignment = <NoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
-        if alignment > required_alignment {
-            required_alignment = alignment;
-        }
-        required_alignment
-    };
-    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
-        use std::mem::align_of;
-        let mut min_align: Option<usize> = None;
-        match (
-            <NoLifetime as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
-            min_align,
-        ) {
-            (None, _) => (),
-            (Some(align), None) => min_align = Some(align),
-            (Some(align), Some(min)) if align < min => min_align = Some(align),
-            _ => (),
-        }
-        match min_align {
-            None => None,
-            Some(min_align) => {
-                let min_size = Self::MIN_LEN;
-                if min_size % 8 == 0 && min_align >= 8 {
-                    Some(8)
-                } else if min_size % 4 == 0 && min_align >= 4 {
-                    Some(4)
-                } else if min_size % 2 == 0 && min_align >= 2 {
-                    Some(2)
-                } else {
-                    Some(1)
-                }
-            }
-        }
-    };
-    const MIN_LEN: usize = {
-        use std::mem::size_of;
-        let mut size = 0;
-        size += <NoLifetime as flat_serialize::FlatSerializable>::MIN_LEN;
-        size
-    };
-    const TRIVIAL_COPY: bool = false;
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
-        if input.len() < Self::MIN_LEN {
-            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
-        }
-        let __packet_macro_read_len = 0usize;
-        let mut nested: Option<NoLifetime> = None;
-        'tryref: loop {
-            {
-                let (field, rem) = match <NoLifetime>::try_ref(input) {
-                    Ok((f, b)) => (f, b),
-                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                        return Err(flat_serialize::WrapErr::InvalidTag(
-                            __packet_macro_read_len + offset,
-                        ))
-                    }
-                    Err(..) => break 'tryref,
-                };
-                input = rem;
-                nested = Some(field);
-            }
-            let _ref = NestedNoLifetime {
-                nested: nested.unwrap(),
-            };
-            return Ok((_ref, input));
-        }
-        Err(flat_serialize::WrapErr::NotEnoughBytes(
-            0 + <NoLifetime>::MIN_LEN,
-        ))
-    }
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    unsafe fn fill_slice<'out>(
-        &self,
-        input: &'out mut [std::mem::MaybeUninit<u8>],
-    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
-        let total_len = self.len();
-        let (mut input, rem) = input.split_at_mut(total_len);
-        let &NestedNoLifetime { nested } = self;
-        unsafe {
-            input = nested.fill_slice(input);
-        }
-        debug_assert_eq!(input.len(), 0);
-        rem
-    }
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    fn len(&self) -> usize {
-        let &NestedNoLifetime { nested } = self;
-        0usize + nested.len()
-    }
-}
-#[derive(Copy, Clone)]
-pub enum ENoLifetime {
-    Variant { val: i64 },
-}
-const _: () = {
-    use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<i64>()];
-    let _alignment_check2 = [()][(align_of::<i64>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
-    const _: () = {
-        use std::mem::{align_of, size_of};
-        let _alignment_check = [()][(0 + size_of::<i64>()) % align_of::<i64>()];
-        let _alignment_check2 = [()][(align_of::<i64>() > 8) as u8 as usize];
-        let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
-    };
-};
-const _: () = {
-    #[allow(dead_code)]
-    enum UniquenessCheck {
-        Variant = 1,
-    }
-};
-const _: () = {
-    fn tag<'i, T: flat_serialize::FlatSerializable<'i>>() {}
-    let _ = tag::<i64>;
-    const _: () = {
-        const _: () = {
-            fn val<'i, T: flat_serialize::FlatSerializable<'i>>() {}
-            let _ = val::<i64>;
-        };
-    };
-};
-unsafe impl<'a> flat_serialize::FlatSerializable<'a> for ENoLifetime {
-    const REQUIRED_ALIGNMENT: usize = {
-        use std::mem::align_of;
-        let mut required_alignment: usize = align_of::<i64>();
-        let alignment: usize = {
-            let mut required_alignment = align_of::<i64>();
-            let alignment = align_of::<i64>();
-            if alignment > required_alignment {
-                required_alignment = alignment;
-            }
-            required_alignment
-        };
-        if alignment > required_alignment {
-            required_alignment = alignment;
-        }
-        required_alignment
-    };
-    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
-        use std::mem::{align_of, size_of};
-        let mut min_align: usize = match Some(8) {
-            None => 8,
-            Some(align) => align,
-        };
-        let variant_alignment: usize = {
-            let mut min_align: Option<usize> = Some(8);
-            let variant_size: usize = size_of::<i64>() + size_of::<i64>();
-            let effective_alignment = match min_align {
-                Some(align) => align,
-                None => 8,
-            };
-            if variant_size % 8 == 0 && effective_alignment >= 8 {
-                8
-            } else if variant_size % 4 == 0 && effective_alignment >= 4 {
-                4
-            } else if variant_size % 2 == 0 && effective_alignment >= 2 {
-                2
-            } else {
-                1
-            }
-        };
-        if variant_alignment < min_align {
-            min_align = variant_alignment
-        }
-        let min_size = Self::MIN_LEN;
-        if min_size % 8 == 0 && min_align >= 8 {
-            Some(8)
-        } else if min_size % 4 == 0 && min_align >= 4 {
-            Some(4)
-        } else if min_size % 2 == 0 && min_align >= 2 {
-            Some(2)
-        } else {
-            Some(1)
-        }
-    };
-    const MIN_LEN: usize = {
-        use std::mem::size_of;
-        let mut size: Option<usize> = None;
-        let variant_size = {
-            let mut size: usize = size_of::<i64>();
-            size += size_of::<i64>();
-            size
-        };
-        size = match size {
-            None => Some(variant_size),
-            Some(size) if size > variant_size => Some(variant_size),
-            Some(size) => Some(size),
-        };
-        match size {
-            Some(size) => size,
-            None => size_of::<i64>(),
-        }
-    };
-    const TRIVIAL_COPY: bool = false;
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
-        let __packet_macro_read_len = 0usize;
-        let mut tag = None;
-        'tryref_tag: loop {
-            {
-                let (field, rem) = match <i64>::try_ref(input) {
-                    Ok((f, b)) => (f, b),
-                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                        return Err(flat_serialize::WrapErr::InvalidTag(
-                            __packet_macro_read_len + offset,
-                        ))
-                    }
-                    Err(..) => break 'tryref_tag,
-                };
-                input = rem;
-                tag = Some(field);
-            };
-            match tag {
-                Some(1) => {
-                    let mut val: Option<i64> = None;
-                    'tryref_0: loop {
-                        {
-                            let (field, rem) = match <i64>::try_ref(input) {
-                                Ok((f, b)) => (f, b),
-                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                                    return Err(flat_serialize::WrapErr::InvalidTag(
-                                        __packet_macro_read_len + offset,
-                                    ))
-                                }
-                                Err(..) => break 'tryref_0,
-                            };
-                            input = rem;
-                            val = Some(field);
-                        }
-                        let _ref = ENoLifetime::Variant { val: val.unwrap() };
-                        return Ok((_ref, input));
-                    }
-                    return Err(flat_serialize::WrapErr::NotEnoughBytes(
-                        std::mem::size_of::<i64>() + ::std::mem::size_of::<i64>(),
-                    ));
-                }
-                _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
-            }
-        }
-        Err(flat_serialize::WrapErr::NotEnoughBytes(
-            ::std::mem::size_of::<i64>(),
-        ))
-    }
-    #[allow(unused_assignments, unused_variables)]
-    unsafe fn fill_slice<'out>(
-        &self,
-        input: &'out mut [std::mem::MaybeUninit<u8>],
-    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
-        let total_len = self.len();
-        let (mut input, rem) = input.split_at_mut(total_len);
-        match self {
-            &ENoLifetime::Variant { val } => {
-                let tag: &i64 = &1;
-                unsafe {
-                    input = tag.fill_slice(input);
-                }
-                unsafe {
-                    input = val.fill_slice(input);
-                }
-            }
-        }
-        debug_assert_eq!(input.len(), 0);
-        rem
-    }
-    #[allow(unused_assignments, unused_variables)]
-    fn len(&self) -> usize {
-        match self {
-            &ENoLifetime::Variant { val } => {
-                ::std::mem::size_of::<i64>() + ::std::mem::size_of::<i64>()
-            }
-        }
-    }
-}
-#[derive(Copy, Clone)]
-pub enum NestedENoLifetime {
-    Variant { val: ENoLifetime },
-}
-const _: () = {
-    use std::mem::{align_of, size_of};
-    let _alignment_check = [()][(0) % align_of::<i64>()];
-    let _alignment_check2 = [()][(align_of::<i64>() > 8) as u8 as usize];
-    let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
-    const _: () = {
-        use std::mem::{align_of, size_of};
-        let _alignment_check: () = [()][(0 + size_of::<i64>())
-            % <ENoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
-        let _alignment_check2: () = [()]
-            [(<ENoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > 8) as u8
-                as usize];
-    };
-};
-const _: () = {
-    #[allow(dead_code)]
-    enum UniquenessCheck {
-        Variant = 2,
-    }
-};
-const _: () = {
-    fn tag<'i, T: flat_serialize::FlatSerializable<'i>>() {}
-    let _ = tag::<i64>;
-    const _: () = {
-        const _: () = {
-            fn val<'test, T: flat_serialize::FlatSerializable<'test>>() {}
-            let _ = val::<ENoLifetime>;
-        };
-    };
-};
-unsafe impl<'a> flat_serialize::FlatSerializable<'a> for NestedENoLifetime {
-    const REQUIRED_ALIGNMENT: usize = {
-        use std::mem::align_of;
-        let mut required_alignment: usize = align_of::<i64>();
-        let alignment: usize = {
-            let mut required_alignment = align_of::<i64>();
-            let alignment = <ENoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
-            if alignment > required_alignment {
-                required_alignment = alignment;
-            }
-            required_alignment
-        };
-        if alignment > required_alignment {
-            required_alignment = alignment;
-        }
-        required_alignment
-    };
-    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
-        use std::mem::{align_of, size_of};
-        let mut min_align: usize = match Some(8) {
-            None => 8,
-            Some(align) => align,
-        };
-        let variant_alignment: usize = {
-            let mut min_align: Option<usize> = Some(8);
-            let alignment =
-                { <ENoLifetime as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
-            match (alignment, min_align) {
-                (None, _) => (),
-                (Some(align), None) => min_align = Some(align),
-                (Some(align), Some(min)) if align < min => min_align = Some(align),
-                _ => (),
-            }
-            let variant_size: usize =
-                size_of::<i64>() + <ENoLifetime as flat_serialize::FlatSerializable>::MIN_LEN;
-            let effective_alignment = match min_align {
-                Some(align) => align,
-                None => 8,
-            };
-            if variant_size % 8 == 0 && effective_alignment >= 8 {
-                8
-            } else if variant_size % 4 == 0 && effective_alignment >= 4 {
-                4
-            } else if variant_size % 2 == 0 && effective_alignment >= 2 {
-                2
-            } else {
-                1
-            }
-        };
-        if variant_alignment < min_align {
-            min_align = variant_alignment
-        }
-        let min_size = Self::MIN_LEN;
-        if min_size % 8 == 0 && min_align >= 8 {
-            Some(8)
-        } else if min_size % 4 == 0 && min_align >= 4 {
-            Some(4)
-        } else if min_size % 2 == 0 && min_align >= 2 {
-            Some(2)
-        } else {
-            Some(1)
-        }
-    };
-    const MIN_LEN: usize = {
-        use std::mem::size_of;
-        let mut size: Option<usize> = None;
-        let variant_size = {
-            let mut size: usize = size_of::<i64>();
-            size += <ENoLifetime as flat_serialize::FlatSerializable>::MIN_LEN;
-            size
-        };
-        size = match size {
-            None => Some(variant_size),
-            Some(size) if size > variant_size => Some(variant_size),
-            Some(size) => Some(size),
-        };
-        match size {
-            Some(size) => size,
-            None => size_of::<i64>(),
-        }
-    };
-    const TRIVIAL_COPY: bool = false;
-    #[allow(unused_assignments, unused_variables)]
-    #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
-        let __packet_macro_read_len = 0usize;
-        let mut tag = None;
-        'tryref_tag: loop {
-            {
-                let (field, rem) = match <i64>::try_ref(input) {
-                    Ok((f, b)) => (f, b),
-                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                        return Err(flat_serialize::WrapErr::InvalidTag(
-                            __packet_macro_read_len + offset,
-                        ))
-                    }
-                    Err(..) => break 'tryref_tag,
-                };
-                input = rem;
-                tag = Some(field);
-            };
-            match tag {
-                Some(2) => {
-                    let mut val: Option<ENoLifetime> = None;
-                    'tryref_0: loop {
-                        {
-                            let (field, rem) = match <ENoLifetime>::try_ref(input) {
-                                Ok((f, b)) => (f, b),
-                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
-                                    return Err(flat_serialize::WrapErr::InvalidTag(
-                                        __packet_macro_read_len + offset,
-                                    ))
-                                }
-                                Err(..) => break 'tryref_0,
-                            };
-                            input = rem;
-                            val = Some(field);
-                        }
-                        let _ref = NestedENoLifetime::Variant { val: val.unwrap() };
-                        return Ok((_ref, input));
-                    }
-                    return Err(flat_serialize::WrapErr::NotEnoughBytes(
-                        std::mem::size_of::<i64>() + <ENoLifetime>::MIN_LEN,
-                    ));
-                }
-                _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
-            }
-        }
-        Err(flat_serialize::WrapErr::NotEnoughBytes(
-            ::std::mem::size_of::<i64>(),
-        ))
-    }
-    #[allow(unused_assignments, unused_variables)]
-    unsafe fn fill_slice<'out>(
-        &self,
-        input: &'out mut [std::mem::MaybeUninit<u8>],
-    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
-        let total_len = self.len();
-        let (mut input, rem) = input.split_at_mut(total_len);
-        match self {
-            &NestedENoLifetime::Variant { val } => {
-                let tag: &i64 = &2;
-                unsafe {
-                    input = tag.fill_slice(input);
-                }
-                unsafe {
-                    input = val.fill_slice(input);
-                }
-            }
-        }
-        debug_assert_eq!(input.len(), 0);
-        rem
-    }
-    #[allow(unused_assignments, unused_variables)]
-    fn len(&self) -> usize {
-        match self {
-            &NestedENoLifetime::Variant { val } => ::std::mem::size_of::<i64>() + val.len(),
         }
     }
 }
