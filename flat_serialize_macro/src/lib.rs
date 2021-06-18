@@ -151,7 +151,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
                 quote!(false)
             } else {
                 let ty = &f.ty;
-                quote!( <#ty>::TRIVIAL_COPY )
+                quote!( <#ty as flat_serialize::FlatSerializable>::TRIVIAL_COPY )
             }
         });
 
@@ -183,7 +183,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
             #trait_check
 
 
-            unsafe impl #ref_liftime FlatSerializable #ref_liftime for #ident #lifetime_args {
+            unsafe impl #ref_liftime flat_serialize::FlatSerializable #ref_liftime for #ident #lifetime_args {
                 #required_alignment
 
                 #max_provided_alignment
@@ -199,8 +199,6 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 
                 #len
             }
-
-            unsafe impl #ref_liftime FlattenableRef #ref_liftime for #ident #lifetime_args {}
         }
     };
 
@@ -243,7 +241,7 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
 
         #trait_check
 
-        unsafe impl #ref_liftime FlatSerializable #ref_liftime for #ident #lifetime_args {
+        unsafe impl #ref_liftime flat_serialize::FlatSerializable #ref_liftime for #ident #lifetime_args {
             #required_alignment
 
             #max_provided_alignment
@@ -259,8 +257,6 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
 
             #len
         }
-
-        unsafe impl #ref_liftime FlattenableRef #ref_liftime for #ident #lifetime_args {}
     }
 }
 
@@ -561,7 +557,7 @@ impl FlatSerializeEnum {
                         let _ref = #id::#variant { #set_fields };
                         return Ok((_ref, input))
                     }
-                    return Err(WrapErr::NotEnoughBytes(std::mem::size_of::<#tag_ty>() #err_size))
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(std::mem::size_of::<#tag_ty>() #err_size))
                 }
             }
         });
@@ -571,18 +567,18 @@ impl FlatSerializeEnum {
         quote! {
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
-            unsafe fn try_ref(mut input: & #lifetime [u8]) -> Result<(Self, & #lifetime [u8]), WrapErr> {
+            unsafe fn try_ref(mut input: & #lifetime [u8]) -> Result<(Self, & #lifetime [u8]), flat_serialize::WrapErr> {
                 let __packet_macro_read_len = 0usize;
                 let mut #tag_ident = None;
                 'tryref_tag: loop {
                     #try_wrap_tag;
                     match #tag_ident {
                         #(#bodies),*
-                        _ => return Err(WrapErr::InvalidTag(0)),
+                        _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
                     }
                 }
                 //TODO
-                Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<#tag_ty>()))
+                Err(flat_serialize::WrapErr::NotEnoughBytes(::std::mem::size_of::<#tag_ty>()))
             }
         }
     }
@@ -606,8 +602,8 @@ impl FlatSerializeEnum {
         });
         quote! {
             #[allow(unused_assignments, unused_variables)]
-            unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>])
-            -> &'out mut [MaybeUninit<u8>] {
+            unsafe fn fill_slice<'out>(&self, input: &'out mut [std::mem::MaybeUninit<u8>])
+            -> &'out mut [std::mem::MaybeUninit<u8>] {
                 let total_len = self.len();
                 let (mut input, rem) = input.split_at_mut(total_len);
                 match self {
@@ -763,9 +759,9 @@ impl FlatSerializeStruct {
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
             unsafe fn try_ref(mut input: & #lifetime [u8])
-            -> Result<(Self, & #lifetime [u8]), WrapErr> {
+            -> Result<(Self, & #lifetime [u8]), flat_serialize::WrapErr> {
                 if input.len() < Self::MIN_LEN {
-                    return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN))
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN))
                 }
                 let __packet_macro_read_len = 0usize;
                 #vars
@@ -774,7 +770,7 @@ impl FlatSerializeStruct {
                     let _ref = #id { #set_fields };
                     return Ok((_ref, input))
                 }
-                Err(WrapErr::NotEnoughBytes(0 #err_size))
+                Err(flat_serialize::WrapErr::NotEnoughBytes(0 #err_size))
             }
         }
     }
@@ -829,7 +825,7 @@ impl FlatSerializeStruct {
         quote! {
             #[allow(unused_assignments, unused_variables)]
             #[inline(always)]
-            unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>]) -> &'out mut [MaybeUninit<u8>] {
+            unsafe fn fill_slice<'out>(&self, input: &'out mut [std::mem::MaybeUninit<u8>]) -> &'out mut [std::mem::MaybeUninit<u8>] {
                 let total_len = self.len();
                 let (mut input, rem) = input.split_at_mut(total_len);
                 let &#id { #fields } = self;
@@ -879,9 +875,9 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
 
-            let new_size = quote!{#size + <#ty>::MIN_LEN};
+            let new_size = quote!{#size + <#ty as flat_serialize::FlatSerializable>::MIN_LEN};
             let new_min_align = quote!{
-                match <#ty>::MAX_PROVIDED_ALIGNMENT {
+                match <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
                     Some(align) => {
                         if align < #min_align {
                             align
@@ -896,8 +892,8 @@ impl FlatSerializeField {
             let size = replace(size, new_size);
             let min_align = replace(min_align, new_min_align);
             return quote_spanned!{self.ty.span()=>
-                let _alignment_check: () = [()][(#size) % <#ty>::REQUIRED_ALIGNMENT];
-                let _alignment_check2: () = [()][(<#ty>::REQUIRED_ALIGNMENT > #min_align) as u8 as usize];
+                let _alignment_check: () = [()][(#size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+                let _alignment_check2: () = [()][(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > #min_align) as u8 as usize];
             }
         }
         match &self.length_info {
@@ -937,7 +933,7 @@ impl FlatSerializeField {
             let lifetime = self.is_by_ref().then(|| quote!{ <'static> });
             // based on static_assertions
             return quote_spanned!{self.ty.span()=>
-                fn #name<'test, T: FlattenableRef<'test>>() {}
+                fn #name<'test, T: flat_serialize::FlatSerializable<'test>>() {}
                 let _ = #name::<#ty #lifetime>;
             }
         }
@@ -947,7 +943,7 @@ impl FlatSerializeField {
         };
         let name = self.ident.as_ref().unwrap();
         return quote_spanned!{ty.span()=>
-            fn #name<'i, T: FlatSerializable<'i>>() {}
+            fn #name<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = #name::<#ty>;
         }
     }
@@ -956,7 +952,7 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
             return quote_spanned!{self.ty.span()=>
-                <#ty>::REQUIRED_ALIGNMENT
+                <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
             }
         }
         match &self.length_info {
@@ -979,7 +975,7 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(&self.ty);
             return Some(quote_spanned!{self.ty.span()=>
-                <#ty>::MAX_PROVIDED_ALIGNMENT
+                <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT
             })
         }
         self.length_info.as_ref().map(|info| {
@@ -995,7 +991,7 @@ impl FlatSerializeField {
         if self.flatten {
             let ty = parser::as_turbofish(ty);
             return quote_spanned!{self.ty.span()=>
-                <#ty>::MIN_LEN
+                <#ty as flat_serialize::FlatSerializable>::MIN_LEN
             }
         }
         match &self.length_info {
@@ -1030,7 +1026,7 @@ impl FlatSerializeField {
                         let count = (#count) as usize;
                         let byte_len = <#ty>::MIN_LEN * count;
                         if input.len() < byte_len {
-                            return Err(WrapErr::NotEnoughBytes(byte_len));
+                            return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
                         }
                         let (bytes, rem) = input.split_at(byte_len);
                         let bytes = bytes.as_ptr();
@@ -1059,8 +1055,8 @@ impl FlatSerializeField {
                     if #is_present {
                         let (field, rem) = match <#ty>::try_ref(input) {
                             Ok((f, b)) => (f, b),
-                            Err(WrapErr::InvalidTag(offset)) =>
-                                return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
+                            Err(flat_serialize::WrapErr::InvalidTag(offset)) =>
+                                return Err(flat_serialize::WrapErr::InvalidTag(__packet_macro_read_len + offset)),
                             Err(..) => break #break_label
 
                         };
@@ -1083,8 +1079,8 @@ impl FlatSerializeField {
                     {
                         let (field, rem) = match <#ty>::try_ref(input) {
                             Ok((f, b)) => (f, b),
-                            Err(WrapErr::InvalidTag(offset)) =>
-                                return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset)),
+                            Err(flat_serialize::WrapErr::InvalidTag(offset)) =>
+                                return Err(flat_serialize::WrapErr::InvalidTag(__packet_macro_read_len + offset)),
                             Err(..) => break #break_label
 
                         };
@@ -1110,7 +1106,7 @@ impl FlatSerializeField {
                         if <#ty>::TRIVIAL_COPY {
                             let size = <#ty>::MIN_LEN * count;
                             let (out, rem) = input.split_at_mut(size);
-                            let bytes = (#ident.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                            let bytes = (#ident.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
                             let bytes = std::slice::from_raw_parts(bytes, size);
                             out.copy_from_slice(bytes);
                             input = rem;
@@ -1323,7 +1319,7 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
             let repr = &repr[0];
 
             let out = quote!{
-                unsafe impl<'i> FlatSerializable<'i> for #name {
+                unsafe impl<'i> flat_serialize::FlatSerializable<'i> for #name {
                     const MIN_LEN: usize = std::mem::size_of::<Self>();
                     const REQUIRED_ALIGNMENT: usize = std::mem::align_of::<Self>();
                     const MAX_PROVIDED_ALIGNMENT: Option<usize> = None;
@@ -1331,10 +1327,10 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
 
                     #[inline(always)]
                     unsafe fn try_ref(input: &'i [u8])
-                    -> Result<(Self, &'i [u8]), WrapErr> {
+                    -> Result<(Self, &'i [u8]), flat_serialize::WrapErr> {
                         let size = std::mem::size_of::<Self>();
                         if input.len() < size {
-                            return Err(WrapErr::NotEnoughBytes(size))
+                            return Err(flat_serialize::WrapErr::NotEnoughBytes(size))
                         }
                         let (field, rem) = input.split_at(size);
                         let field = field.as_ptr().cast::<#repr>();
@@ -1344,17 +1340,17 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
                         let field = field.read_unaligned();
                         let field = match field {
                             #(#variant => #name::#variant,)*
-                            _ => return Err(WrapErr::InvalidTag(0)),
+                            _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
                         };
                         Ok((field, rem))
                     }
 
                     #[inline(always)]
-                    unsafe fn fill_slice<'out>(&self, input: &'out mut [MaybeUninit<u8>])
-                    -> &'out mut [MaybeUninit<u8>] {
+                    unsafe fn fill_slice<'out>(&self, input: &'out mut [std::mem::MaybeUninit<u8>])
+                    -> &'out mut [std::mem::MaybeUninit<u8>] {
                         let size = std::mem::size_of::<Self>();
                         let (input, rem) = input.split_at_mut(size);
-                        let bytes = (self as *const Self).cast::<MaybeUninit<u8>>();
+                        let bytes = (self as *const Self).cast::<std::mem::MaybeUninit<u8>>();
                         let bytes = std::slice::from_raw_parts(bytes, size);
                         input.copy_from_slice(bytes);
                         rem
@@ -1404,7 +1400,7 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
 
         #trait_check
 
-        unsafe impl<'a> FlatSerializable<'a> for #ident {
+        unsafe impl<'a> flat_serialize::FlatSerializable<'a> for #ident {
             #required_alignment
 
             #max_provided_alignment

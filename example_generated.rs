@@ -32,18 +32,18 @@ const _: () = {
     let _padding_check: () = [()][(size_of::<u8>() < align_of::<u8>()) as u8 as usize];
 };
 const _: () = {
-    fn header<'i, T: FlatSerializable<'i>>() {}
+    fn header<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = header::<u64>;
-    fn data_len<'i, T: FlatSerializable<'i>>() {}
+    fn data_len<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = data_len::<u32>;
-    fn array<'i, T: FlatSerializable<'i>>() {}
+    fn array<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = array::<[u16; 3]>;
-    fn data<'i, T: FlatSerializable<'i>>() {}
+    fn data<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = data::<u8>;
-    fn data2<'i, T: FlatSerializable<'i>>() {}
+    fn data2<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = data2::<u8>;
 };
-unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
+unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
@@ -113,9 +113,11 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &'input [u8]) -> Result<(Self, &'input [u8]), WrapErr> {
+    unsafe fn try_ref(
+        mut input: &'input [u8],
+    ) -> Result<(Self, &'input [u8]), flat_serialize::WrapErr> {
         if input.len() < Self::MIN_LEN {
-            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
         }
         let __packet_macro_read_len = 0usize;
         let mut header: Option<u64> = None;
@@ -127,8 +129,10 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
             {
                 let (field, rem) = match <u64>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -138,8 +142,10 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
             {
                 let (field, rem) = match <u32>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -149,8 +155,10 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
             {
                 let (field, rem) = match <[u16; 3]>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -162,7 +170,7 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
                 let count = (data_len.clone().unwrap()) as usize;
                 let byte_len = <u8>::MIN_LEN * count;
                 if input.len() < byte_len {
-                    return Err(WrapErr::NotEnoughBytes(byte_len));
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
                 }
                 let (bytes, rem) = input.split_at(byte_len);
                 let bytes = bytes.as_ptr();
@@ -179,7 +187,7 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
                 let count = (data_len.clone().unwrap() / 2) as usize;
                 let byte_len = <u8>::MIN_LEN * count;
                 if input.len() < byte_len {
-                    return Err(WrapErr::NotEnoughBytes(byte_len));
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
                 }
                 let (bytes, rem) = input.split_at(byte_len);
                 let bytes = bytes.as_ptr();
@@ -200,7 +208,7 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
             };
             return Ok((_ref, input));
         }
-        Err(WrapErr::NotEnoughBytes(
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
             0 + ::std::mem::size_of::<u64>()
                 + ::std::mem::size_of::<u32>()
                 + ::std::mem::size_of::<[u16; 3]>()
@@ -224,8 +232,8 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
     #[inline(always)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         let &Basic {
@@ -250,7 +258,7 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
             if <u8>::TRIVIAL_COPY {
                 let size = <u8>::MIN_LEN * count;
                 let (out, rem) = input.split_at_mut(size);
-                let bytes = (data.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                let bytes = (data.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
                 let bytes = std::slice::from_raw_parts(bytes, size);
                 out.copy_from_slice(bytes);
                 input = rem;
@@ -266,7 +274,7 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
             if <u8>::TRIVIAL_COPY {
                 let size = <u8>::MIN_LEN * count;
                 let (out, rem) = input.split_at_mut(size);
-                let bytes = (data2.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                let bytes = (data2.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
                 let bytes = std::slice::from_raw_parts(bytes, size);
                 out.copy_from_slice(bytes);
                 input = rem;
@@ -297,7 +305,6 @@ unsafe impl<'input> FlatSerializable<'input> for Basic<'input> {
             + (::std::mem::size_of::<u8>() * ((data_len) / 2) as usize)
     }
 }
-unsafe impl<'input> FlattenableRef<'input> for Basic<'input> {}
 #[derive(Copy, Clone, Debug)]
 pub struct Optional {
     pub header: u64,
@@ -322,14 +329,14 @@ const _: () = {
     let _padding_check = [()][(size_of::<u16>() < align_of::<u16>()) as u8 as usize];
 };
 const _: () = {
-    fn header<'i, T: FlatSerializable<'i>>() {}
+    fn header<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = header::<u64>;
-    fn optional_field<'i, T: FlatSerializable<'i>>() {}
+    fn optional_field<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = optional_field::<u32>;
-    fn non_optional_field<'i, T: FlatSerializable<'i>>() {}
+    fn non_optional_field<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = non_optional_field::<u16>;
 };
-unsafe impl<'a> FlatSerializable<'a> for Optional {
+unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Optional {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
@@ -383,9 +390,9 @@ unsafe impl<'a> FlatSerializable<'a> for Optional {
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
         if input.len() < Self::MIN_LEN {
-            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
         }
         let __packet_macro_read_len = 0usize;
         let mut header: Option<u64> = None;
@@ -395,8 +402,10 @@ unsafe impl<'a> FlatSerializable<'a> for Optional {
             {
                 let (field, rem) = match <u64>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -406,8 +415,10 @@ unsafe impl<'a> FlatSerializable<'a> for Optional {
             if header.clone().unwrap() != 1 {
                 let (field, rem) = match <u32>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -417,8 +428,10 @@ unsafe impl<'a> FlatSerializable<'a> for Optional {
             {
                 let (field, rem) = match <u16>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -432,7 +445,7 @@ unsafe impl<'a> FlatSerializable<'a> for Optional {
             };
             return Ok((_ref, input));
         }
-        Err(WrapErr::NotEnoughBytes(
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
             0 + ::std::mem::size_of::<u64>()
                 + (|| {
                     if match header {
@@ -452,8 +465,8 @@ unsafe impl<'a> FlatSerializable<'a> for Optional {
     #[inline(always)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         let &Optional {
@@ -494,7 +507,6 @@ unsafe impl<'a> FlatSerializable<'a> for Optional {
             + ::std::mem::size_of::<u16>()
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for Optional {}
 #[derive(Copy, Clone, Debug)]
 pub struct Nested<'a> {
     pub prefix: u64,
@@ -505,16 +517,18 @@ const _: () = {
     let _alignment_check = [()][(0) % align_of::<u64>()];
     let _alignment_check2 = [()][(align_of::<u64>() > 8) as u8 as usize];
     let _padding_check = [()][(size_of::<u64>() < align_of::<u64>()) as u8 as usize];
-    let _alignment_check: () = [()][(0 + size_of::<u64>()) % <Basic>::REQUIRED_ALIGNMENT];
-    let _alignment_check2: () = [()][(<Basic>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
+    let _alignment_check: () = [()]
+        [(0 + size_of::<u64>()) % <Basic as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () =
+        [()][(<Basic as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
 };
 const _: () = {
-    fn prefix<'i, T: FlatSerializable<'i>>() {}
+    fn prefix<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = prefix::<u64>;
-    fn basic<'test, T: FlattenableRef<'test>>() {}
+    fn basic<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = basic::<Basic<'static>>;
 };
-unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
+unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
@@ -522,7 +536,7 @@ unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = <Basic>::REQUIRED_ALIGNMENT;
+        let alignment = <Basic as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
@@ -531,7 +545,10 @@ unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (<Basic>::MAX_PROVIDED_ALIGNMENT, min_align) {
+        match (
+            <Basic as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
+            min_align,
+        ) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
@@ -557,15 +574,15 @@ unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
         use std::mem::size_of;
         let mut size = 0;
         size += size_of::<u64>();
-        size += <Basic>::MIN_LEN;
+        size += <Basic as flat_serialize::FlatSerializable>::MIN_LEN;
         size
     };
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &'a [u8]) -> Result<(Self, &'a [u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &'a [u8]) -> Result<(Self, &'a [u8]), flat_serialize::WrapErr> {
         if input.len() < Self::MIN_LEN {
-            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
         }
         let __packet_macro_read_len = 0usize;
         let mut prefix: Option<u64> = None;
@@ -574,8 +591,10 @@ unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
             {
                 let (field, rem) = match <u64>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -585,8 +604,10 @@ unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
             {
                 let (field, rem) = match <Basic>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -599,7 +620,7 @@ unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
             };
             return Ok((_ref, input));
         }
-        Err(WrapErr::NotEnoughBytes(
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
             0 + ::std::mem::size_of::<u64>() + <Basic>::MIN_LEN,
         ))
     }
@@ -607,8 +628,8 @@ unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
     #[inline(always)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         let &Nested { prefix, basic } = self;
@@ -628,7 +649,6 @@ unsafe impl<'a> FlatSerializable<'a> for Nested<'a> {
         0usize + ::std::mem::size_of::<u64>() + basic.len()
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for Nested<'a> {}
 #[derive(Copy, Clone, Debug)]
 pub enum BasicEnum<'input> {
     First { data_len: u32, data: &'input [u8] },
@@ -664,24 +684,24 @@ const _: () = {
     }
 };
 const _: () = {
-    fn k<'i, T: FlatSerializable<'i>>() {}
+    fn k<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = k::<u64>;
     const _: () = {
         const _: () = {
-            fn data_len<'i, T: FlatSerializable<'i>>() {}
+            fn data_len<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = data_len::<u32>;
-            fn data<'i, T: FlatSerializable<'i>>() {}
+            fn data<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = data::<u8>;
         };
     };
     const _: () = {
         const _: () = {
-            fn array<'i, T: FlatSerializable<'i>>() {}
+            fn array<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = array::<[u16; 3]>;
         };
     };
 };
-unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
+unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'input> {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<u64>();
@@ -809,15 +829,19 @@ unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &'input [u8]) -> Result<(Self, &'input [u8]), WrapErr> {
+    unsafe fn try_ref(
+        mut input: &'input [u8],
+    ) -> Result<(Self, &'input [u8]), flat_serialize::WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut k = None;
         'tryref_tag: loop {
             {
                 let (field, rem) = match <u64>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref_tag,
                 };
@@ -832,8 +856,8 @@ unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
                         {
                             let (field, rem) = match <u32>::try_ref(input) {
                                 Ok((f, b)) => (f, b),
-                                Err(WrapErr::InvalidTag(offset)) => {
-                                    return Err(WrapErr::InvalidTag(
+                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                    return Err(flat_serialize::WrapErr::InvalidTag(
                                         __packet_macro_read_len + offset,
                                     ))
                                 }
@@ -847,7 +871,7 @@ unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
                             let count = (data_len.clone().unwrap()) as usize;
                             let byte_len = <u8>::MIN_LEN * count;
                             if input.len() < byte_len {
-                                return Err(WrapErr::NotEnoughBytes(byte_len));
+                                return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
                             }
                             let (bytes, rem) = input.split_at(byte_len);
                             let bytes = bytes.as_ptr();
@@ -865,7 +889,7 @@ unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
                         };
                         return Ok((_ref, input));
                     }
-                    return Err(WrapErr::NotEnoughBytes(
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u64>()
                             + ::std::mem::size_of::<u32>()
                             + (|| {
@@ -883,8 +907,8 @@ unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
                         {
                             let (field, rem) = match <[u16; 3]>::try_ref(input) {
                                 Ok((f, b)) => (f, b),
-                                Err(WrapErr::InvalidTag(offset)) => {
-                                    return Err(WrapErr::InvalidTag(
+                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                    return Err(flat_serialize::WrapErr::InvalidTag(
                                         __packet_macro_read_len + offset,
                                     ))
                                 }
@@ -898,20 +922,22 @@ unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
                         };
                         return Ok((_ref, input));
                     }
-                    return Err(WrapErr::NotEnoughBytes(
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u64>() + ::std::mem::size_of::<[u16; 3]>(),
                     ));
                 }
-                _ => return Err(WrapErr::InvalidTag(0)),
+                _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
             }
         }
-        Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<u64>()))
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
+            ::std::mem::size_of::<u64>(),
+        ))
     }
     #[allow(unused_assignments, unused_variables)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         match self {
@@ -929,7 +955,8 @@ unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
                     if <u8>::TRIVIAL_COPY {
                         let size = <u8>::MIN_LEN * count;
                         let (out, rem) = input.split_at_mut(size);
-                        let bytes = (data.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                        let bytes =
+                            (data.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
                         let bytes = std::slice::from_raw_parts(bytes, size);
                         out.copy_from_slice(bytes);
                         input = rem;
@@ -967,7 +994,6 @@ unsafe impl<'input> FlatSerializable<'input> for BasicEnum<'input> {
         }
     }
 }
-unsafe impl<'input> FlattenableRef<'input> for BasicEnum<'input> {}
 #[derive(Copy, Clone, Debug)]
 pub enum PaddedEnum<'input> {
     First {
@@ -1018,28 +1044,28 @@ const _: () = {
     }
 };
 const _: () = {
-    fn k<'i, T: FlatSerializable<'i>>() {}
+    fn k<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = k::<u8>;
     const _: () = {
         const _: () = {
-            fn padding<'i, T: FlatSerializable<'i>>() {}
+            fn padding<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = padding::<[u8; 3]>;
-            fn data_len<'i, T: FlatSerializable<'i>>() {}
+            fn data_len<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = data_len::<u32>;
-            fn data<'i, T: FlatSerializable<'i>>() {}
+            fn data<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = data::<u8>;
         };
     };
     const _: () = {
         const _: () = {
-            fn padding<'i, T: FlatSerializable<'i>>() {}
+            fn padding<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = padding::<u8>;
-            fn array<'i, T: FlatSerializable<'i>>() {}
+            fn array<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = array::<[u16; 3]>;
         };
     };
 };
-unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
+unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'input> {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<u8>();
@@ -1177,15 +1203,19 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &'input [u8]) -> Result<(Self, &'input [u8]), WrapErr> {
+    unsafe fn try_ref(
+        mut input: &'input [u8],
+    ) -> Result<(Self, &'input [u8]), flat_serialize::WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut k = None;
         'tryref_tag: loop {
             {
                 let (field, rem) = match <u8>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref_tag,
                 };
@@ -1201,8 +1231,8 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
                         {
                             let (field, rem) = match <[u8; 3]>::try_ref(input) {
                                 Ok((f, b)) => (f, b),
-                                Err(WrapErr::InvalidTag(offset)) => {
-                                    return Err(WrapErr::InvalidTag(
+                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                    return Err(flat_serialize::WrapErr::InvalidTag(
                                         __packet_macro_read_len + offset,
                                     ))
                                 }
@@ -1214,8 +1244,8 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
                         {
                             let (field, rem) = match <u32>::try_ref(input) {
                                 Ok((f, b)) => (f, b),
-                                Err(WrapErr::InvalidTag(offset)) => {
-                                    return Err(WrapErr::InvalidTag(
+                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                    return Err(flat_serialize::WrapErr::InvalidTag(
                                         __packet_macro_read_len + offset,
                                     ))
                                 }
@@ -1229,7 +1259,7 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
                             let count = (data_len.clone().unwrap()) as usize;
                             let byte_len = <u8>::MIN_LEN * count;
                             if input.len() < byte_len {
-                                return Err(WrapErr::NotEnoughBytes(byte_len));
+                                return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
                             }
                             let (bytes, rem) = input.split_at(byte_len);
                             let bytes = bytes.as_ptr();
@@ -1248,7 +1278,7 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
                         };
                         return Ok((_ref, input));
                     }
-                    return Err(WrapErr::NotEnoughBytes(
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u8>()
                             + ::std::mem::size_of::<[u8; 3]>()
                             + ::std::mem::size_of::<u32>()
@@ -1268,8 +1298,8 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
                         {
                             let (field, rem) = match <u8>::try_ref(input) {
                                 Ok((f, b)) => (f, b),
-                                Err(WrapErr::InvalidTag(offset)) => {
-                                    return Err(WrapErr::InvalidTag(
+                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                    return Err(flat_serialize::WrapErr::InvalidTag(
                                         __packet_macro_read_len + offset,
                                     ))
                                 }
@@ -1281,8 +1311,8 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
                         {
                             let (field, rem) = match <[u16; 3]>::try_ref(input) {
                                 Ok((f, b)) => (f, b),
-                                Err(WrapErr::InvalidTag(offset)) => {
-                                    return Err(WrapErr::InvalidTag(
+                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                    return Err(flat_serialize::WrapErr::InvalidTag(
                                         __packet_macro_read_len + offset,
                                     ))
                                 }
@@ -1297,22 +1327,24 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
                         };
                         return Ok((_ref, input));
                     }
-                    return Err(WrapErr::NotEnoughBytes(
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(
                         std::mem::size_of::<u8>()
                             + ::std::mem::size_of::<u8>()
                             + ::std::mem::size_of::<[u16; 3]>(),
                     ));
                 }
-                _ => return Err(WrapErr::InvalidTag(0)),
+                _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
             }
         }
-        Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<u8>()))
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
+            ::std::mem::size_of::<u8>(),
+        ))
     }
     #[allow(unused_assignments, unused_variables)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         match self {
@@ -1337,7 +1369,8 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
                     if <u8>::TRIVIAL_COPY {
                         let size = <u8>::MIN_LEN * count;
                         let (out, rem) = input.split_at_mut(size);
-                        let bytes = (data.as_ptr() as *const u8).cast::<MaybeUninit<u8>>();
+                        let bytes =
+                            (data.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
                         let bytes = std::slice::from_raw_parts(bytes, size);
                         out.copy_from_slice(bytes);
                         input = rem;
@@ -1385,7 +1418,6 @@ unsafe impl<'input> FlatSerializable<'input> for PaddedEnum<'input> {
         }
     }
 }
-unsafe impl<'input> FlattenableRef<'input> for PaddedEnum<'input> {}
 #[derive(Copy, Clone, Debug)]
 pub struct InMacro {
     pub a: u32,
@@ -1405,14 +1437,14 @@ const _: () = {
     let _padding_check = [()][(size_of::<f64>() < align_of::<f64>()) as u8 as usize];
 };
 const _: () = {
-    fn a<'i, T: FlatSerializable<'i>>() {}
+    fn a<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = a::<u32>;
-    fn padding<'i, T: FlatSerializable<'i>>() {}
+    fn padding<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = padding::<[u8; 4]>;
-    fn b<'i, T: FlatSerializable<'i>>() {}
+    fn b<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = b::<f64>;
 };
-unsafe impl<'a> FlatSerializable<'a> for InMacro {
+unsafe impl<'a> flat_serialize::FlatSerializable<'a> for InMacro {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
@@ -1460,9 +1492,9 @@ unsafe impl<'a> FlatSerializable<'a> for InMacro {
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
         if input.len() < Self::MIN_LEN {
-            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
         }
         let __packet_macro_read_len = 0usize;
         let mut a: Option<u32> = None;
@@ -1472,8 +1504,10 @@ unsafe impl<'a> FlatSerializable<'a> for InMacro {
             {
                 let (field, rem) = match <u32>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -1483,8 +1517,10 @@ unsafe impl<'a> FlatSerializable<'a> for InMacro {
             {
                 let (field, rem) = match <[u8; 4]>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -1494,8 +1530,10 @@ unsafe impl<'a> FlatSerializable<'a> for InMacro {
             {
                 let (field, rem) = match <f64>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -1509,7 +1547,7 @@ unsafe impl<'a> FlatSerializable<'a> for InMacro {
             };
             return Ok((_ref, input));
         }
-        Err(WrapErr::NotEnoughBytes(
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
             0 + ::std::mem::size_of::<u32>()
                 + ::std::mem::size_of::<[u8; 4]>()
                 + ::std::mem::size_of::<f64>(),
@@ -1519,8 +1557,8 @@ unsafe impl<'a> FlatSerializable<'a> for InMacro {
     #[inline(always)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         let &InMacro { a, padding, b } = self;
@@ -1546,7 +1584,6 @@ unsafe impl<'a> FlatSerializable<'a> for InMacro {
             + ::std::mem::size_of::<f64>()
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for InMacro {}
 #[derive(Copy, Clone)]
 pub struct NoLifetime {
     pub val: i64,
@@ -1558,10 +1595,10 @@ const _: () = {
     let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
 };
 const _: () = {
-    fn val<'i, T: FlatSerializable<'i>>() {}
+    fn val<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = val::<i64>;
 };
-unsafe impl<'a> FlatSerializable<'a> for NoLifetime {
+unsafe impl<'a> flat_serialize::FlatSerializable<'a> for NoLifetime {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
@@ -1599,9 +1636,9 @@ unsafe impl<'a> FlatSerializable<'a> for NoLifetime {
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
         if input.len() < Self::MIN_LEN {
-            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
         }
         let __packet_macro_read_len = 0usize;
         let mut val: Option<i64> = None;
@@ -1609,8 +1646,10 @@ unsafe impl<'a> FlatSerializable<'a> for NoLifetime {
             {
                 let (field, rem) = match <i64>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -1620,14 +1659,16 @@ unsafe impl<'a> FlatSerializable<'a> for NoLifetime {
             let _ref = NoLifetime { val: val.unwrap() };
             return Ok((_ref, input));
         }
-        Err(WrapErr::NotEnoughBytes(0 + ::std::mem::size_of::<i64>()))
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
+            0 + ::std::mem::size_of::<i64>(),
+        ))
     }
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         let &NoLifetime { val } = self;
@@ -1644,25 +1685,26 @@ unsafe impl<'a> FlatSerializable<'a> for NoLifetime {
         0usize + ::std::mem::size_of::<i64>()
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for NoLifetime {}
 #[derive(Copy, Clone)]
 pub struct NestedNoLifetime {
     pub nested: NoLifetime,
 }
 const _: () = {
     use std::mem::{align_of, size_of};
-    let _alignment_check: () = [()][(0) % <NoLifetime>::REQUIRED_ALIGNMENT];
-    let _alignment_check2: () = [()][(<NoLifetime>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
+    let _alignment_check: () =
+        [()][(0) % <NoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()]
+        [(<NoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
 };
 const _: () = {
-    fn nested<'test, T: FlattenableRef<'test>>() {}
+    fn nested<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = nested::<NoLifetime>;
 };
-unsafe impl<'a> FlatSerializable<'a> for NestedNoLifetime {
+unsafe impl<'a> flat_serialize::FlatSerializable<'a> for NestedNoLifetime {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment = 1;
-        let alignment = <NoLifetime>::REQUIRED_ALIGNMENT;
+        let alignment = <NoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
@@ -1671,7 +1713,10 @@ unsafe impl<'a> FlatSerializable<'a> for NestedNoLifetime {
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (<NoLifetime>::MAX_PROVIDED_ALIGNMENT, min_align) {
+        match (
+            <NoLifetime as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
+            min_align,
+        ) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
@@ -1696,15 +1741,15 @@ unsafe impl<'a> FlatSerializable<'a> for NestedNoLifetime {
     const MIN_LEN: usize = {
         use std::mem::size_of;
         let mut size = 0;
-        size += <NoLifetime>::MIN_LEN;
+        size += <NoLifetime as flat_serialize::FlatSerializable>::MIN_LEN;
         size
     };
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
         if input.len() < Self::MIN_LEN {
-            return Err(WrapErr::NotEnoughBytes(Self::MIN_LEN));
+            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
         }
         let __packet_macro_read_len = 0usize;
         let mut nested: Option<NoLifetime> = None;
@@ -1712,8 +1757,10 @@ unsafe impl<'a> FlatSerializable<'a> for NestedNoLifetime {
             {
                 let (field, rem) = match <NoLifetime>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref,
                 };
@@ -1725,14 +1772,16 @@ unsafe impl<'a> FlatSerializable<'a> for NestedNoLifetime {
             };
             return Ok((_ref, input));
         }
-        Err(WrapErr::NotEnoughBytes(0 + <NoLifetime>::MIN_LEN))
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
+            0 + <NoLifetime>::MIN_LEN,
+        ))
     }
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         let &NestedNoLifetime { nested } = self;
@@ -1749,7 +1798,6 @@ unsafe impl<'a> FlatSerializable<'a> for NestedNoLifetime {
         0usize + nested.len()
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for NestedNoLifetime {}
 #[derive(Copy, Clone)]
 pub enum ENoLifetime {
     Variant { val: i64 },
@@ -1773,16 +1821,16 @@ const _: () = {
     }
 };
 const _: () = {
-    fn tag<'i, T: FlatSerializable<'i>>() {}
+    fn tag<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = tag::<i64>;
     const _: () = {
         const _: () = {
-            fn val<'i, T: FlatSerializable<'i>>() {}
+            fn val<'i, T: flat_serialize::FlatSerializable<'i>>() {}
             let _ = val::<i64>;
         };
     };
 };
-unsafe impl<'a> FlatSerializable<'a> for ENoLifetime {
+unsafe impl<'a> flat_serialize::FlatSerializable<'a> for ENoLifetime {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<i64>();
@@ -1857,15 +1905,17 @@ unsafe impl<'a> FlatSerializable<'a> for ENoLifetime {
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut tag = None;
         'tryref_tag: loop {
             {
                 let (field, rem) = match <i64>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref_tag,
                 };
@@ -1879,8 +1929,8 @@ unsafe impl<'a> FlatSerializable<'a> for ENoLifetime {
                         {
                             let (field, rem) = match <i64>::try_ref(input) {
                                 Ok((f, b)) => (f, b),
-                                Err(WrapErr::InvalidTag(offset)) => {
-                                    return Err(WrapErr::InvalidTag(
+                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                    return Err(flat_serialize::WrapErr::InvalidTag(
                                         __packet_macro_read_len + offset,
                                     ))
                                 }
@@ -1892,20 +1942,22 @@ unsafe impl<'a> FlatSerializable<'a> for ENoLifetime {
                         let _ref = ENoLifetime::Variant { val: val.unwrap() };
                         return Ok((_ref, input));
                     }
-                    return Err(WrapErr::NotEnoughBytes(
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(
                         std::mem::size_of::<i64>() + ::std::mem::size_of::<i64>(),
                     ));
                 }
-                _ => return Err(WrapErr::InvalidTag(0)),
+                _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
             }
         }
-        Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<i64>()))
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
+            ::std::mem::size_of::<i64>(),
+        ))
     }
     #[allow(unused_assignments, unused_variables)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         match self {
@@ -1931,7 +1983,6 @@ unsafe impl<'a> FlatSerializable<'a> for ENoLifetime {
         }
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for ENoLifetime {}
 #[derive(Copy, Clone)]
 pub enum NestedENoLifetime {
     Variant { val: ENoLifetime },
@@ -1943,8 +1994,11 @@ const _: () = {
     let _padding_check = [()][(size_of::<i64>() < align_of::<i64>()) as u8 as usize];
     const _: () = {
         use std::mem::{align_of, size_of};
-        let _alignment_check: () = [()][(0 + size_of::<i64>()) % <ENoLifetime>::REQUIRED_ALIGNMENT];
-        let _alignment_check2: () = [()][(<ENoLifetime>::REQUIRED_ALIGNMENT > 8) as u8 as usize];
+        let _alignment_check: () = [()][(0 + size_of::<i64>())
+            % <ENoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        let _alignment_check2: () = [()]
+            [(<ENoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > 8) as u8
+                as usize];
     };
 };
 const _: () = {
@@ -1954,22 +2008,22 @@ const _: () = {
     }
 };
 const _: () = {
-    fn tag<'i, T: FlatSerializable<'i>>() {}
+    fn tag<'i, T: flat_serialize::FlatSerializable<'i>>() {}
     let _ = tag::<i64>;
     const _: () = {
         const _: () = {
-            fn val<'test, T: FlattenableRef<'test>>() {}
+            fn val<'test, T: flat_serialize::FlatSerializable<'test>>() {}
             let _ = val::<ENoLifetime>;
         };
     };
 };
-unsafe impl<'a> FlatSerializable<'a> for NestedENoLifetime {
+unsafe impl<'a> flat_serialize::FlatSerializable<'a> for NestedENoLifetime {
     const REQUIRED_ALIGNMENT: usize = {
         use std::mem::align_of;
         let mut required_alignment: usize = align_of::<i64>();
         let alignment: usize = {
             let mut required_alignment = align_of::<i64>();
-            let alignment = <ENoLifetime>::REQUIRED_ALIGNMENT;
+            let alignment = <ENoLifetime as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
             if alignment > required_alignment {
                 required_alignment = alignment;
             }
@@ -1988,14 +2042,16 @@ unsafe impl<'a> FlatSerializable<'a> for NestedENoLifetime {
         };
         let variant_alignment: usize = {
             let mut min_align: Option<usize> = Some(8);
-            let alignment = { <ENoLifetime>::MAX_PROVIDED_ALIGNMENT };
+            let alignment =
+                { <ENoLifetime as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
                 (Some(align), Some(min)) if align < min => min_align = Some(align),
                 _ => (),
             }
-            let variant_size: usize = size_of::<i64>() + <ENoLifetime>::MIN_LEN;
+            let variant_size: usize =
+                size_of::<i64>() + <ENoLifetime as flat_serialize::FlatSerializable>::MIN_LEN;
             let effective_alignment = match min_align {
                 Some(align) => align,
                 None => 8,
@@ -2029,7 +2085,7 @@ unsafe impl<'a> FlatSerializable<'a> for NestedENoLifetime {
         let mut size: Option<usize> = None;
         let variant_size = {
             let mut size: usize = size_of::<i64>();
-            size += <ENoLifetime>::MIN_LEN;
+            size += <ENoLifetime as flat_serialize::FlatSerializable>::MIN_LEN;
             size
         };
         size = match size {
@@ -2045,15 +2101,17 @@ unsafe impl<'a> FlatSerializable<'a> for NestedENoLifetime {
     const TRIVIAL_COPY: bool = false;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
-    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), WrapErr> {
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
         let __packet_macro_read_len = 0usize;
         let mut tag = None;
         'tryref_tag: loop {
             {
                 let (field, rem) = match <i64>::try_ref(input) {
                     Ok((f, b)) => (f, b),
-                    Err(WrapErr::InvalidTag(offset)) => {
-                        return Err(WrapErr::InvalidTag(__packet_macro_read_len + offset))
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
                     }
                     Err(..) => break 'tryref_tag,
                 };
@@ -2067,8 +2125,8 @@ unsafe impl<'a> FlatSerializable<'a> for NestedENoLifetime {
                         {
                             let (field, rem) = match <ENoLifetime>::try_ref(input) {
                                 Ok((f, b)) => (f, b),
-                                Err(WrapErr::InvalidTag(offset)) => {
-                                    return Err(WrapErr::InvalidTag(
+                                Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                    return Err(flat_serialize::WrapErr::InvalidTag(
                                         __packet_macro_read_len + offset,
                                     ))
                                 }
@@ -2080,20 +2138,22 @@ unsafe impl<'a> FlatSerializable<'a> for NestedENoLifetime {
                         let _ref = NestedENoLifetime::Variant { val: val.unwrap() };
                         return Ok((_ref, input));
                     }
-                    return Err(WrapErr::NotEnoughBytes(
+                    return Err(flat_serialize::WrapErr::NotEnoughBytes(
                         std::mem::size_of::<i64>() + <ENoLifetime>::MIN_LEN,
                     ));
                 }
-                _ => return Err(WrapErr::InvalidTag(0)),
+                _ => return Err(flat_serialize::WrapErr::InvalidTag(0)),
             }
         }
-        Err(WrapErr::NotEnoughBytes(::std::mem::size_of::<i64>()))
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
+            ::std::mem::size_of::<i64>(),
+        ))
     }
     #[allow(unused_assignments, unused_variables)]
     unsafe fn fill_slice<'out>(
         &self,
-        input: &'out mut [MaybeUninit<u8>],
-    ) -> &'out mut [MaybeUninit<u8>] {
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
         let total_len = self.len();
         let (mut input, rem) = input.split_at_mut(total_len);
         match self {
@@ -2117,4 +2177,3 @@ unsafe impl<'a> FlatSerializable<'a> for NestedENoLifetime {
         }
     }
 }
-unsafe impl<'a> FlattenableRef<'a> for NestedENoLifetime {}

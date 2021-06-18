@@ -7,10 +7,6 @@ pub enum WrapErr {
     InvalidTag(usize),
 }
 
-// TODO add a Metadata argument to try_ref and type to the trait for more
-//      advanced deserialization?
-pub unsafe trait FlattenableRef<'a>: Sized + 'a {}
-
 /// For a type to be `FlatSerializable` it must contain no pointers, have no
 /// interior padding, must have a `size >= alignmen` and must have
 /// `size % align = 0`. Use `#[derive(FlatSerializable)]` to implement this.
@@ -151,7 +147,7 @@ where T: FlatSerializable<'i> + 'i {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
+    use crate as flat_serialize;
 
     use flat_serialize_macro::{flat_serialize, FlatSerializable};
 
@@ -168,6 +164,7 @@ mod tests {
 
     #[test]
     fn basic() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&33u64.to_ne_bytes());
         bytes.extend_from_slice(&6u32.to_ne_bytes());
@@ -237,6 +234,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "range end index 5 out of range for slice of length 1")]
     fn bad_len1() {
+        use crate::FlatSerializable;
         let mut output = vec![];
         Basic {
             header: 1,
@@ -251,6 +249,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "range end index 2 out of range for slice of length 0")]
     fn bad_len2() {
+        use crate::FlatSerializable;
         let mut output = vec![];
         Basic {
             header: 1,
@@ -279,6 +278,7 @@ mod tests {
 
     #[test]
     fn optional_present() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&101010101u64.to_ne_bytes());
         bytes.extend_from_slice(&30u32.to_ne_bytes());
@@ -320,6 +320,7 @@ mod tests {
 
     #[test]
     fn optional_absent() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1u64.to_ne_bytes());
         bytes.extend_from_slice(&7u16.to_ne_bytes());
@@ -369,6 +370,7 @@ mod tests {
 
     #[test]
     fn nested() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&101010101u64.to_ne_bytes());
         bytes.extend_from_slice(&33u64.to_ne_bytes());
@@ -443,6 +445,7 @@ mod tests {
 
     #[test]
     fn basic_enum1() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&2u64.to_ne_bytes());
         bytes.extend_from_slice(&6u32.to_ne_bytes());
@@ -470,6 +473,7 @@ mod tests {
 
     #[test]
     fn basic_enum2() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&3u64.to_ne_bytes());
         bytes.extend_from_slice(&3u16.to_ne_bytes());
@@ -520,6 +524,7 @@ mod tests {
 
     #[test]
     fn padded_enum1() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&2u8.to_ne_bytes());
         bytes.extend_from_slice(&[0xf, 0xf, 0xf]);
@@ -548,6 +553,7 @@ mod tests {
 
     #[test]
     fn padded_enum2() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&3u8.to_ne_bytes());
         bytes.extend_from_slice(&[0]);
@@ -665,10 +671,10 @@ mod tests {
                         $($(#[$attrs])* $field: $typ $(<$life>)?),*
                     }
                 };
-                assert_eq!(SizeAlignTest::MIN_LEN, $min_len, "length");
-                assert_eq!(SizeAlignTest::REQUIRED_ALIGNMENT, $required_alignment, "required");
-                assert_eq!(SizeAlignTest::MAX_PROVIDED_ALIGNMENT, $max_provided_alignment, "max provided");
-                assert_eq!(SizeAlignTest::TRIVIAL_COPY, false, "trivial copy");
+                assert_eq!(<SizeAlignTest as crate::FlatSerializable>::MIN_LEN, $min_len, "length");
+                assert_eq!(<SizeAlignTest as crate::FlatSerializable>::REQUIRED_ALIGNMENT, $required_alignment, "required");
+                assert_eq!(<SizeAlignTest as crate::FlatSerializable>::MAX_PROVIDED_ALIGNMENT, $max_provided_alignment, "max provided");
+                assert_eq!(<SizeAlignTest as crate::FlatSerializable>::TRIVIAL_COPY, false, "trivial copy");
             }
         }
     }
@@ -1065,13 +1071,14 @@ mod tests {
     }
 
     const _:() = {
-        fn check_flat_serializable_impl<'a, T: FlatSerializable<'a>>() {}
+        fn check_flat_serializable_impl<'a, T: crate::FlatSerializable<'a>>() {}
         let _ = check_flat_serializable_impl::<Foo>;
         let _ = check_flat_serializable_impl::<[Foo; 2]>;
     };
 
     #[test]
     fn foo() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&33i32.to_ne_bytes());
         bytes.extend_from_slice(&100000001i32.to_ne_bytes());
@@ -1111,13 +1118,14 @@ mod tests {
     }
 
     const _:() = {
-        fn check_flat_serializable_impl<'a, T: FlatSerializable<'a>>() {}
+        fn check_flat_serializable_impl<'a, T: crate::FlatSerializable<'a>>() {}
         let _ = check_flat_serializable_impl::<Bar>;
         let _ = check_flat_serializable_impl::<[Bar; 2]>;
     };
 
     #[test]
     fn fs_enum_a() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&0u16.to_ne_bytes());
 
@@ -1149,6 +1157,7 @@ mod tests {
 
     #[test]
     fn fs_enum_b() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1111u16.to_ne_bytes());
 
@@ -1175,6 +1184,7 @@ mod tests {
 
     #[test]
     fn fs_enum_non() {
+        use crate::{FlatSerializable, WrapErr};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1u16.to_ne_bytes());
 
