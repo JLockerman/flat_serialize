@@ -169,6 +169,8 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
             quote!{ <#lifetime> }
         });
         let ref_liftime = lifetime_args.clone().unwrap_or_else(|| quote!{ <'a> });
+        let rl = lifetime.clone().unwrap_or_else(|| quote!{ 'a });
+
         let attrs = &*input.attrs;
 
         quote! {
@@ -194,6 +196,7 @@ fn flat_serialize_struct(input: FlatSerializeStruct) -> TokenStream2 {
 
                 // cannot be TRIVIAL_COPY unless the struct is #[repr(C)]
                 const TRIVIAL_COPY: bool = false;
+                type SLICE = flat_serialize::Iterable<#rl, #ident #lifetime_args>;
 
                 #try_ref
 
@@ -222,6 +225,7 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
     let lifetime = input.lifetime.as_ref().map(|lifetime| quote!{ #lifetime });
     let lifetime_args = input.lifetime.as_ref().map(|lifetime| quote!{ <#lifetime> });
     let ref_liftime = lifetime_args.clone().unwrap_or_else(|| quote!{ <'a> });
+    let rl = lifetime.clone().unwrap_or_else(|| quote!{ 'a });
 
     let try_ref = input.fn_try_ref(lifetime.as_ref());
     let fill_slice = input.fn_fill_slice();
@@ -252,6 +256,7 @@ fn flat_serialize_enum(input: FlatSerializeEnum) -> TokenStream2 {
 
             // cannot be TRIVIAL_COPY since the rust enum layout is unspecified
             const TRIVIAL_COPY: bool = false;
+            type SLICE = flat_serialize::Iterable<#rl, #ident #lifetime_args>;
 
             #try_ref
 
@@ -362,8 +367,6 @@ impl FlatSerializeEnum {
     }
 
     fn alignment_check(&self) -> TokenStream2 {
-        let size = quote! { 0 };
-        let min_align = quote! { 8 };
         let tag_check = self.tag.alignment_check();
         let variant_checks = self.variants.iter()
             .map(|v| v.body.alignment_check(quote!(current_size), quote!(min_align)));
@@ -445,9 +448,7 @@ impl FlatSerializeEnum {
             quote!{
                 let mut min_align: Option<usize> = #min_align;
                 #(
-                    let alignment = {
-                        #alignments
-                    };
+                    let alignment = #alignments;
                     match (alignment, min_align) {
                         (None, _) => (),
                         (Some(align), None) => min_align = Some(align),
@@ -704,7 +705,8 @@ impl FlatSerializeStruct {
                 use std::mem::align_of;
                 let mut min_align: Option<usize> = None;
                 #(
-                    match (#alignments, min_align) {
+                    let ty_align = #alignments;
+                    match (ty_align, min_align) {
                         (None, _) => (),
                         (Some(align), None) => min_align = Some(align),
                         (Some(align), Some(min)) if align < min =>
@@ -875,7 +877,6 @@ impl FlatSerializeField {
         let min_align  = quote!(min_align);
         match &self.length_info {
             None => {
-
                 let ty = self.ty_without_lifetime();
                 quote_spanned!{self.ty.span()=>
                     let _alignment_check: () = [()][(#current_size) % <#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
@@ -944,12 +945,34 @@ impl FlatSerializeField {
                     <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT
                 }
             },
-            Some(info) => {
+            Some(info @ VariableLenFieldInfo { is_optional: true, ..}) => {
                 let ty = info.ty_without_lifetime();
+                // fields after an optional field cannot be aligned to more than
+                // the field is in the event the field is present, so if the
+                // field does not provide a max alignment (i.e. it's fixed-len)
+                // use that to determine what the max alignment is.
                 quote_spanned!{self.ty.span()=>
-                    Some(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT)
+                    {
+                        let ty_provied = <#ty as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+                        match ty_provied {
+                            Some(align) => Some(align),
+                            None => Some(<#ty as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
+                        }
+                    }
                 }
             },
+            Some(info @ VariableLenFieldInfo { is_optional: false, ..}) => {
+                let ty = info.ty_without_lifetime();
+                // for variable length slices we only need to check the required
+                // alignment, not the max-provided: TRIVIAL_COPY types won't
+                // have a max-provided alignment, while other ones will be
+                // padded out to their natural alignment.
+                quote_spanned!{self.ty.span()=>
+                    {
+                        Some(<#ty as  flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT)
+                    }
+                }
+            }
         }
     }
 
@@ -979,24 +1002,16 @@ impl FlatSerializeField {
                         compile_error!("flattened types are not allowed in variable-length fields")
                     }
                 }
-                let const_len_check = quote_spanned!{ty.span()=>
-                    const _:() = [()][(!<#ty>::TRIVIAL_COPY) as u8 as usize];
-                };
                 quote! {
                     {
-                        #const_len_check
                         let count = (#count) as usize;
-                        let byte_len = <#ty>::MIN_LEN * count;
-                        if input.len() < byte_len {
-                            return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
-                        }
-                        let (bytes, rem) = input.split_at(byte_len);
-                        let bytes = bytes.as_ptr();
-                        let field = ::std::slice::from_raw_parts(bytes.cast::<#ty>(), count);
-                        debug_assert_eq!(
-                            bytes.offset(byte_len as isize) as usize,
-                            field.as_ptr().offset(count as isize) as usize
-                        );
+                        let (field, rem) = match <_ as flat_serialize::Slice <'_
+                        >>::try_ref(input, count) {
+                            Ok((f, b)) => (f, b),
+                            Err(flat_serialize::WrapErr::InvalidTag(offset)) =>
+                                return Err(flat_serialize::WrapErr::InvalidTag(__packet_macro_read_len + offset)),
+                            Err(..) => break #break_label
+                        };
                         input = rem;
                         #ident = Some(field);
                     }
@@ -1043,24 +1058,11 @@ impl FlatSerializeField {
         match &self.length_info {
             Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
                 let count = info.counter_expr();
-                let ty = &info.ty;
                 // TODO this may not elide all bounds checks
                 quote! {
                     unsafe {
                         let count = (#count) as usize;
-                        let #ident = &#ident[..count];
-                        if <#ty>::TRIVIAL_COPY {
-                            let size = <#ty>::MIN_LEN * count;
-                            let (out, rem) = input.split_at_mut(size);
-                            let bytes = (#ident.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
-                            let bytes = std::slice::from_raw_parts(bytes, size);
-                            out.copy_from_slice(bytes);
-                            input = rem;
-                        } else {
-                            for #ident in #ident {
-                                input = #ident.fill_slice(input);
-                            }
-                        }
+                        input = <_ as flat_serialize::Slice<'_>>::fill_slice(&#ident, count, input);
                     }
                 }
             }
@@ -1119,7 +1121,7 @@ impl FlatSerializeField {
             },
             Some(VariableLenFieldInfo { is_optional: false, ty, .. }) =>
                 quote_spanned! {self.field.span()=>
-                     & #lifetime [#ty]
+                    <#ty as flat_serialize::FlatSerializable<#lifetime>>::SLICE
                 },
             Some(VariableLenFieldInfo { is_optional: true, ty, .. }) => {
                 quote_spanned! {self.field.span()=>
@@ -1135,7 +1137,9 @@ impl FlatSerializeField {
                 let ty = &self.ty;
                 quote! { Option<#ty> }
             },
-            Some(VariableLenFieldInfo { is_optional: false, ty, .. }) => quote! { Option<&[#ty]> },
+            Some(VariableLenFieldInfo { is_optional: false, ty, .. }) => {
+                quote! { Option<<#ty as flat_serialize::FlatSerializable<'_>>::SLICE> }
+            },
             Some(VariableLenFieldInfo { is_optional: true, ty, .. }) => {
                 quote! { Option<#ty> }
             },
@@ -1146,15 +1150,9 @@ impl FlatSerializeField {
         let ident = self.ident.as_ref().unwrap();
         match &self.length_info {
             Some(info @ VariableLenFieldInfo { is_optional: false, .. }) => {
-                if info.ty_without_lifetime.is_some() {
-                    return quote_spanned! {self.ty.span()=>
-                        compile_error!("types with lifetimes are not allowed in variable-length fields")
-                    }
-                }
-                let ty = &info.ty;
                 let count = info.counter_expr();
                 quote! {
-                    (::std::mem::size_of::<#ty>() * (#count) as usize)
+                    (<_ as flat_serialize::Slice<'_>>::len(&#ident, (#count) as usize))
                 }
             }
             Some(info @ VariableLenFieldInfo { is_optional: true, .. }) => {
@@ -1278,6 +1276,7 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
                     const REQUIRED_ALIGNMENT: usize = std::mem::align_of::<Self>();
                     const MAX_PROVIDED_ALIGNMENT: Option<usize> = None;
                     const TRIVIAL_COPY: bool = true;
+                    type SLICE = &'i [#name];
 
                     #[inline(always)]
                     unsafe fn try_ref(input: &'i [u8])
@@ -1348,6 +1347,7 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
     let fill_slice = s.fn_fill_slice();
     let len = s.fn_len();
 
+    // FIXME add check that all values are TRIVIAL_COPY
     let out = quote! {
 
         // alignment assertions
@@ -1364,6 +1364,7 @@ pub fn flat_serializable_derive(input: TokenStream) -> TokenStream {
             #min_len
 
             const TRIVIAL_COPY: bool = true;
+            type SLICE = &'a [#ident];
 
             #try_ref
 

@@ -1,5 +1,5 @@
 
-use std::{mem::{MaybeUninit, align_of, size_of}, slice};
+use std::{fmt, marker::PhantomData, mem::{MaybeUninit, align_of, size_of}, slice};
 #[derive(Debug)]
 pub enum WrapErr {
     NotEnoughBytes(usize),
@@ -14,6 +14,7 @@ pub unsafe trait FlatSerializable<'input>: Sized + 'input {
     const REQUIRED_ALIGNMENT: usize;
     const MAX_PROVIDED_ALIGNMENT: Option<usize>;
     const TRIVIAL_COPY: bool = false;
+    type SLICE;
 
 
     unsafe fn try_ref(input: &'input [u8]) -> Result<(Self, &'input [u8]), WrapErr>;
@@ -50,6 +51,7 @@ macro_rules! impl_flat_serializable {
                 const REQUIRED_ALIGNMENT: usize = align_of::<Self>();
                 const MAX_PROVIDED_ALIGNMENT: Option<usize> = None;
                 const TRIVIAL_COPY: bool = true;
+                type SLICE = &'i [$typ];
 
                 #[inline(always)]
                 unsafe fn try_ref(input: &'i [u8])
@@ -98,6 +100,8 @@ where T: FlatSerializable<'i> + 'i {
     const REQUIRED_ALIGNMENT: usize = T::REQUIRED_ALIGNMENT;
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = T::MAX_PROVIDED_ALIGNMENT;
     const TRIVIAL_COPY: bool = T::TRIVIAL_COPY;
+    // FIXME ensure no padding
+    type SLICE = Iterable<'i, [T; N]>;
 
     #[inline(always)]
     unsafe fn try_ref(mut input: &'i [u8])
@@ -144,6 +148,287 @@ where T: FlatSerializable<'i> + 'i {
     }
 }
 
+
+pub enum Iterable<'input, T: 'input> {
+    Iter(Iter<'input, T>),
+    Slice(&'input [T])
+}
+
+impl<'input, T: 'input> Iterator for Iterable<'input, T>
+where T: FlatSerializable<'input> + Clone {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Iterable::Iter(i) => {
+                if i.slice.is_empty() {
+                    return None
+                }
+                let (val, rem) = unsafe {
+                    <T>::try_ref(i.slice).unwrap()
+                };
+                let additional_len = aligning_len(rem.as_ptr() as _, T::REQUIRED_ALIGNMENT);
+
+                i.slice = &rem[additional_len..];
+                return Some(val)
+            },
+            Iterable::Slice(s) => {
+                let val = s.first().cloned();
+                if val.is_some() {
+                    *s = &s[1..]
+                }
+                val
+            },
+        }
+
+    }
+}
+
+impl<'i, T> fmt::Debug for Iterable<'i, T>
+where T: fmt::Debug + FlatSerializable<'i> + Clone {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(*self).finish()
+    }
+}
+
+impl<'i, T: 'i> PartialEq for Iterable<'i, T>
+where T: FlatSerializable<'i> + Clone + PartialEq {
+    fn eq(&self, other: &Self) -> bool {
+        <Self as Iterator>::eq(*self, *other)
+    }
+}
+
+#[derive(Debug)]
+pub struct Iter<'input, T: 'input> {
+    slice: &'input [u8],
+    _pd: PhantomData<&'input T>,
+}
+
+impl<'input, T: 'input> Iterable<'input, T> {
+    pub unsafe fn from_bytes(bytes: &'input [u8]) -> Self {
+        Iterable::Iter(Iter {
+            slice: bytes,
+            _pd: PhantomData,
+        })
+    }
+}
+
+impl<'input, T: 'input> Iterator for Iter<'input, T>
+where T: FlatSerializable<'input> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.slice.is_empty() {
+            return None
+        }
+        let (val, rem) = unsafe {
+            <T>::try_ref(self.slice).unwrap()
+        };
+        self.slice = rem;
+        return Some(val)
+    }
+}
+
+impl<'input, T: 'input> From<&'input [T]> for Iterable<'input, T> {
+    fn from(val: &'input [T]) -> Self {
+        Self::Slice(val)
+    }
+}
+
+impl<'input, T: 'input> Clone for Iterable<'input, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'input, T: 'input> Copy for Iterable<'input, T> {}
+
+impl<'input, T: 'input> Clone for Iter<'input, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'input, T: 'input> Copy for Iter<'input, T> {}
+
+#[doc(hidden)]
+pub unsafe trait Slice<'input>: Sized {
+    unsafe fn try_ref(input: &'input [u8], count: usize) -> Result<(Self, &'input [u8]), WrapErr>;
+    #[must_use]
+    unsafe fn fill_slice<'out>(&self, count: usize, input: &'out mut [MaybeUninit<u8>])
+    -> &'out mut [MaybeUninit<u8>];
+    fn len(&self, count: usize) -> usize;
+}
+
+unsafe impl<'i, T: 'i> Slice<'i> for &'i [T]
+where T: FlatSerializable<'i> {
+    #[inline(always)]
+    unsafe fn try_ref(input: &'i [u8], count: usize) -> Result<(Self, &'i [u8]), WrapErr> {
+        assert!(<T as FlatSerializable>::TRIVIAL_COPY);
+        let byte_len = T::MIN_LEN * count;
+        if input.len() < byte_len {
+            return Err(WrapErr::NotEnoughBytes(byte_len));
+        }
+        let (bytes, rem) = input.split_at(byte_len);
+        let bytes = bytes.as_ptr();
+        let field = ::std::slice::from_raw_parts(bytes.cast::<T>(), count);
+        debug_assert_eq!(
+            bytes.offset(byte_len as isize) as usize,
+            field.as_ptr().offset(count as isize) as usize
+        );
+        Ok((field, rem))
+    }
+
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(&self, count: usize, input: &'out mut [MaybeUninit<u8>])
+    -> &'out mut [MaybeUninit<u8>] {
+        assert!(<T as FlatSerializable>::TRIVIAL_COPY);
+        if !<T as FlatSerializable>::TRIVIAL_COPY {
+            return fill_slice_from_iter::<T, _, _>(self.iter(), count, input)
+        }
+        let vals = &self[..count];
+        let size = <T>::MIN_LEN * vals.len();
+        let (out, rem) = input.split_at_mut(size);
+        let bytes = vals.as_ptr().cast::<std::mem::MaybeUninit<u8>>();
+        let bytes = std::slice::from_raw_parts(bytes, size);
+        out.copy_from_slice(bytes);
+        rem
+
+    }
+
+    #[inline(always)]
+    fn len(&self, count: usize) -> usize {
+        assert!(<T as FlatSerializable>::TRIVIAL_COPY);
+        if !<T as FlatSerializable>::TRIVIAL_COPY {
+            return len_of_iterable::<T, _, _>(self.iter(), count)
+        }
+        ::std::mem::size_of::<T>() * count as usize
+    }
+}
+
+unsafe impl<'i, T: 'i> Slice<'i> for Iterable<'i, T>
+where T: FlatSerializable<'i> + Clone {
+    #[inline(always)]
+    unsafe fn try_ref(input: &'i [u8], count: usize) -> Result<(Self, &'i [u8]), WrapErr> {
+        if T::TRIVIAL_COPY {
+            let (field, rem) = <&[T]>::try_ref(input, count)?;
+            return Ok((Self::Slice(field), rem))
+        }
+        let mut total_len = 0;
+        let mut tmp = input;
+        let mut old_ptr = input.as_ptr() as usize;
+        for _ in 0..count {
+            let (field, rem) = T::try_ref(tmp)?;
+            debug_assert_eq!(rem.as_ptr() as usize - old_ptr, field.len());
+
+            let additional_len = aligning_len(rem.as_ptr() as _, T::REQUIRED_ALIGNMENT);
+            if rem.len() < additional_len {
+                return Err(WrapErr::NotEnoughBytes(additional_len))
+            }
+
+            let rem = &rem[additional_len..];
+            debug_assert_eq!(rem.as_ptr() as usize % T::REQUIRED_ALIGNMENT, 0);
+
+            let padded_len = rem.as_ptr() as usize - old_ptr;
+
+            old_ptr = rem.as_ptr() as usize;
+            tmp = rem;
+            total_len += padded_len;
+        }
+        let (iter, rem) = input.split_at(total_len);
+        debug_assert_eq!(rem.as_ptr() as usize, tmp.as_ptr() as usize);
+        debug_assert_eq!(rem.len(), tmp.len());
+        Ok((
+            Self::from_bytes(iter),
+            rem
+        ))
+    }
+
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(&self, count: usize, input: &'out mut [MaybeUninit<u8>])
+    -> &'out mut [MaybeUninit<u8>] {
+        if let (true, Self::Slice(values)) = (T::TRIVIAL_COPY, self) {
+            return <&[T]>::fill_slice(values, count, input)
+        }
+        fill_slice_from_iter(*self, count, input)
+    }
+
+    #[inline(always)]
+    fn len(&self, count: usize) -> usize {
+        if let (true, Self::Slice(values)) = (T::TRIVIAL_COPY, self) {
+            return <&[T]>::len(values, count)
+        }
+        len_of_iterable(*self, count)
+    }
+}
+
+#[inline(always)]
+unsafe fn fill_slice_from_iter<'i, 'out, T: FlatSerializable<'i>, V: ValOrRef<T>, I: Iterator<Item=V>>(
+    iter: I,
+    count: usize,
+    mut input: &'out mut [MaybeUninit<u8>]
+) -> &'out mut [MaybeUninit<u8>] {
+    let mut filled = 0;
+    for v in iter.take(count) {
+        input = v.to_ref().fill_slice(input);
+        let additional_len = aligning_len(input.as_ptr(), T::REQUIRED_ALIGNMENT);
+        let (addition, rem) = input.split_at_mut(additional_len);
+        addition.copy_from_slice(&[MaybeUninit::new(0); 8][..additional_len]);
+        debug_assert_eq!(rem.as_ptr() as usize % T::REQUIRED_ALIGNMENT, 0);
+        input = rem;
+        filled += 1;
+    }
+    if filled < count {
+        panic!("Not enough elements. Expected {} found {}", count, filled)
+    }
+    input
+}
+
+#[inline(always)]
+fn len_of_iterable<'i, T: FlatSerializable<'i>, V: ValOrRef<T>, I: Iterator<Item=V>>(
+    iter: I,
+    count: usize,
+) -> usize {
+    let mut filled = 0;
+    let mut len = 0;
+    for v in iter.take(count) {
+        filled += 1;
+        len += v.to_ref().len();
+        if len % T::REQUIRED_ALIGNMENT != 0 {
+            len += T::REQUIRED_ALIGNMENT - (len % T::REQUIRED_ALIGNMENT);
+        }
+    }
+    if filled < count {
+        panic!("Not enough elements. Expected {} found {}", count, filled)
+    }
+    len
+}
+
+#[inline(always)]
+fn aligning_len(ptr: *const MaybeUninit<u8>, align: usize) -> usize {
+    let current_ptr = ptr as usize;
+    if current_ptr as usize % align == 0 {
+        return 0
+    }
+    align - (current_ptr % align)
+}
+
+trait ValOrRef<T: ?Sized> {
+    fn to_ref(&self) -> &T;
+}
+
+impl<T: ?Sized> ValOrRef<T> for T {
+    fn to_ref(&self) -> &T {
+        self
+    }
+}
+
+impl<T: ?Sized> ValOrRef<T> for &T {
+    fn to_ref(&self) -> &T {
+        *self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate as flat_serialize;
@@ -157,13 +442,13 @@ mod tests {
             data_len: u32,
             array: [u16; 3],
             data: [u8; self.data_len],
-            data2: [u8; self.data_len / 2],
+            data2: [[u8; 2]; self.data_len / 3],
         }
     }
 
     #[test]
     fn basic() {
-        use crate::{FlatSerializable, WrapErr};
+        use crate::{FlatSerializable, WrapErr, Iterable};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&33u64.to_ne_bytes());
         bytes.extend_from_slice(&6u32.to_ne_bytes());
@@ -171,7 +456,7 @@ mod tests {
         bytes.extend_from_slice(&404u16.to_ne_bytes());
         bytes.extend_from_slice(&555u16.to_ne_bytes());
         bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
-        bytes.extend_from_slice(&[4, 4, 4]);
+        bytes.extend_from_slice(&[4, 4, 95, 99]);
         let (
             Basic {
                 header,
@@ -189,10 +474,11 @@ mod tests {
                 6,
                 [202, 404, 555],
                 &[1, 3, 5, 7, 9, 11][..],
-                &[4, 4, 4][..],
+                Iterable::Slice(&[[4, 4], [95, 99]]),
                 &[][..]
             )
         );
+
 
         let mut output = vec![];
         Basic {
@@ -215,7 +501,7 @@ mod tests {
                 array
             }
         );
-        assert_eq!(debug, "Basic { header: 33, data_len: 6, array: [202, 404, 555], data: [1, 3, 5, 7, 9, 11], data2: [4, 4, 4] }");
+        assert_eq!(debug, "Basic { header: 33, data_len: 6, array: [202, 404, 555], data: [1, 3, 5, 7, 9, 11], data2: [[4, 4], [95, 99]] }");
 
         assert_eq!(Basic::MIN_LEN, 18);
         assert_eq!(Basic::REQUIRED_ALIGNMENT, 8);
@@ -233,35 +519,35 @@ mod tests {
     #[test]
     #[should_panic(expected = "range end index 5 out of range for slice of length 1")]
     fn bad_len1() {
-        use crate::FlatSerializable;
+        use crate::{FlatSerializable, Iterable};
         let mut output = vec![];
         Basic {
             header: 1,
             data_len: 5,
             array: [0; 3],
             data: &[1],
-            data2: &[2],
+            data2: Iterable::Slice(&[[2, 2]]),
         }
         .fill_vec(&mut output);
     }
 
     #[test]
-    #[should_panic(expected = "range end index 2 out of range for slice of length 0")]
+    #[should_panic(expected = "range end index 1 out of range for slice of length 0")]
     fn bad_len2() {
-        use crate::FlatSerializable;
+        use crate::{FlatSerializable, Iterable};
         let mut output = vec![];
         Basic {
             header: 1,
             data_len: 5,
             array: [0; 3],
             data: &[1, 2, 3, 4, 5],
-            data2: &[],
+            data2: Iterable::Slice(&[]),
         }
         .fill_vec(&mut output);
     }
 
     flat_serialize! {
-        #[derive(Debug)]
+        #[derive(Debug, PartialEq, Eq)]
         struct Optional {
             header: u64,
             optional_field: u32 if self.header != 1,
@@ -315,6 +601,11 @@ mod tests {
             };
             assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
         }
+
+        assert_eq!(Optional::MIN_LEN, 10);
+        assert_eq!(Optional::REQUIRED_ALIGNMENT, 8);
+        assert_eq!(Optional::MAX_PROVIDED_ALIGNMENT, Some(2));
+        assert_eq!(Optional::TRIVIAL_COPY, false);
     }
 
     #[test]
@@ -368,7 +659,7 @@ mod tests {
 
     #[test]
     fn nested() {
-        use crate::{FlatSerializable, WrapErr};
+        use crate::{FlatSerializable, WrapErr, Iterable};
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&101010101u64.to_ne_bytes());
         bytes.extend_from_slice(&33u64.to_ne_bytes());
@@ -377,7 +668,7 @@ mod tests {
         bytes.extend_from_slice(&404u16.to_ne_bytes());
         bytes.extend_from_slice(&555u16.to_ne_bytes());
         bytes.extend_from_slice(&[1, 3, 5, 7, 9, 11]);
-        bytes.extend_from_slice(&[4, 4, 4]);
+        bytes.extend_from_slice(&[3, 0, 104, 2]);
         let (
             Nested {
                 prefix,
@@ -400,7 +691,7 @@ mod tests {
                 6,
                 [202, 404, 555],
                 &[1, 3, 5, 7, 9, 11][..],
-                &[4, 4, 4][..],
+                Iterable::Slice(&[[3, 0], [104, 2]]),
                 &[][..]
             )
         );
@@ -425,6 +716,138 @@ mod tests {
             };
             assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
         }
+    }
+
+    flat_serialize!{
+        #[derive(Debug)]
+        struct NestedOptional {
+            present: u64,
+            val: Optional if self.present > 2,
+        }
+    }
+
+    #[test]
+    fn nested_optional() {
+        use crate::{FlatSerializable, WrapErr};
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&3u64.to_ne_bytes());
+        {
+            bytes.extend_from_slice(&0u64.to_ne_bytes());
+            bytes.extend_from_slice(&111111111u32.to_ne_bytes());
+            bytes.extend_from_slice(&0xf00fu16.to_ne_bytes());
+            bytes.extend_from_slice(&[77; 2]);
+        }
+
+        let (NestedOptional { present, val }, rem) = unsafe {
+            NestedOptional::try_ref(&bytes).unwrap()
+        };
+
+        assert_eq!(
+            (present, val, rem),
+            (
+                3,
+                Some(Optional {
+                    header: 0,
+                    optional_field: Some(111111111),
+                    non_optional_field: 0xf00f,
+                }),
+                &[77; 2][..],
+            )
+        );
+
+        let mut output = vec![];
+        NestedOptional { present, val }.fill_vec(&mut output);
+        assert_eq!(output, &bytes[..bytes.len()-2]);
+
+        for i in 0..bytes.len()-3 {
+            let res = unsafe {
+                NestedOptional::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
+
+        assert_eq!(NestedOptional::MIN_LEN, 8);
+        assert_eq!(NestedOptional::REQUIRED_ALIGNMENT, 8);
+        assert_eq!(NestedOptional::MAX_PROVIDED_ALIGNMENT, Some(2));
+        assert_eq!(NestedOptional::TRIVIAL_COPY, false);
+    }
+
+    flat_serialize!{
+        #[derive(Debug)]
+        struct NestedSlice<'b> {
+            num_vals: u64,
+            // #[flat_serialize::flatten]
+            vals: [Optional; self.num_vals],
+        }
+    }
+
+    #[test]
+    fn nested_slice() {
+        use crate::{FlatSerializable, WrapErr};
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&3u64.to_ne_bytes());
+        {
+            bytes.extend_from_slice(&101010101u64.to_ne_bytes());
+            bytes.extend_from_slice(&30u32.to_ne_bytes());
+            bytes.extend_from_slice(&6u16.to_ne_bytes());
+            bytes.extend_from_slice(&[0; 2]);
+        }
+        {
+            bytes.extend_from_slice(&1u64.to_ne_bytes());
+            bytes.extend_from_slice(&7u16.to_ne_bytes());
+            bytes.extend_from_slice(&[0; 6]);
+        }
+        {
+            bytes.extend_from_slice(&0u64.to_ne_bytes());
+            bytes.extend_from_slice(&111111111u32.to_ne_bytes());
+            bytes.extend_from_slice(&0xf00fu16.to_ne_bytes());
+            bytes.extend_from_slice(&[0; 2]);
+        }
+
+        let (NestedSlice { num_vals, vals }, rem) = unsafe {
+            NestedSlice::try_ref(&bytes).unwrap()
+        };
+        let vals_vec: Vec<_> = vals.clone().collect();
+        assert_eq!(
+            (num_vals, &*vals_vec, rem),
+            (
+                3,
+                &[
+                    Optional {
+                        header: 101010101,
+                        optional_field: Some(30),
+                        non_optional_field: 6,
+                    },
+                    Optional {
+                        header: 1,
+                        optional_field: None,
+                        non_optional_field: 7,
+                    },
+                    Optional {
+                        header: 0,
+                        optional_field: Some(111111111),
+                        non_optional_field: 0xf00f,
+                    },
+                ][..],
+                &[][..],
+            )
+        );
+
+        let mut output = vec![];
+        NestedSlice { num_vals, vals }.fill_vec(&mut output);
+        assert_eq!(output, bytes);
+
+        for i in 0..bytes.len()-1 {
+            let res = unsafe {
+                NestedSlice::try_ref(&bytes[..i])
+            };
+            assert!(matches!(res, Err(WrapErr::NotEnoughBytes(..))), "{:?}", res);
+        }
+
+        assert_eq!(NestedSlice::MIN_LEN, 8);
+        assert_eq!(NestedSlice::REQUIRED_ALIGNMENT, 8);
+        assert_eq!(NestedSlice::MAX_PROVIDED_ALIGNMENT, Some(8));
+        assert_eq!(NestedSlice::TRIVIAL_COPY, false);
     }
 
     flat_serialize! {

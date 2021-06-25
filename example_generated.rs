@@ -3,8 +3,8 @@ pub struct Basic<'input> {
     pub header: u64,
     pub data_len: u32,
     pub array: [u16; 3],
-    pub data: &'input [u8],
-    pub data2: &'input [u8],
+    pub data: <u8 as flat_serialize::FlatSerializable<'input>>::SLICE,
+    pub data2: <[u8; 2] as flat_serialize::FlatSerializable<'input>>::SLICE,
 }
 #[allow(unused_assignments)]
 const _: () = {
@@ -51,13 +51,14 @@ const _: () = {
         _ => min_align,
     };
     let _alignment_check: () =
-        [()][(current_size) % <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+        [()][(current_size) % <[u8; 2] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
     let _alignment_check2: () = [()]
-        [(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8 as usize];
-    if <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
-        min_align = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        [(<[u8; 2] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+            as usize];
+    if <[u8; 2] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
+        min_align = <[u8; 2] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
     }
-    min_align = match <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+    min_align = match <[u8; 2] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
         Some(align) if align < min_align => align,
         _ => min_align,
     };
@@ -72,7 +73,7 @@ const _: () = {
     fn data<'test, T: flat_serialize::FlatSerializable<'test>>() {}
     let _ = data::<u8>;
     fn data2<'test, T: flat_serialize::FlatSerializable<'test>>() {}
-    let _ = data2::<u8>;
+    let _ = data2::<[u8; 2]>;
 };
 unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
     const REQUIRED_ALIGNMENT: usize = {
@@ -94,7 +95,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
         if alignment > required_alignment {
             required_alignment = alignment;
         }
-        let alignment = <u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+        let alignment = <[u8; 2] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
         if alignment > required_alignment {
             required_alignment = alignment;
         }
@@ -103,46 +104,36 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (
-            <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
-            min_align,
-        ) {
+        let ty_align = <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        match (
-            <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
-            min_align,
-        ) {
+        let ty_align = <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        match (
-            <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
-            min_align,
-        ) {
+        let ty_align = <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        match (
-            Some(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
-            min_align,
-        ) {
+        let ty_align = { Some(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT) };
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        match (
-            Some(<u8 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
-            min_align,
-        ) {
+        let ty_align = { Some(<[u8; 2] as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT) };
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
@@ -175,6 +166,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
         size
     };
     const TRIVIAL_COPY: bool = false;
+    type SLICE = flat_serialize::Iterable<'input, Basic<'input>>;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
     unsafe fn try_ref(
@@ -187,8 +179,8 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
         let mut header: Option<u64> = None;
         let mut data_len: Option<u32> = None;
         let mut array: Option<[u16; 3]> = None;
-        let mut data: Option<&[u8]> = None;
-        let mut data2: Option<&[u8]> = None;
+        let mut data: Option<<u8 as flat_serialize::FlatSerializable<'_>>::SLICE> = None;
+        let mut data2: Option<<[u8; 2] as flat_serialize::FlatSerializable<'_>>::SLICE> = None;
         'tryref: loop {
             {
                 let (field, rem) = match <u64>::try_ref(input) {
@@ -230,36 +222,30 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
                 array = Some(field);
             }
             {
-                const _: () = [()][(!<u8>::TRIVIAL_COPY) as u8 as usize];
                 let count = (data_len.clone().unwrap()) as usize;
-                let byte_len = <u8>::MIN_LEN * count;
-                if input.len() < byte_len {
-                    return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
-                }
-                let (bytes, rem) = input.split_at(byte_len);
-                let bytes = bytes.as_ptr();
-                let field = ::std::slice::from_raw_parts(bytes.cast::<u8>(), count);
-                debug_assert_eq!(
-                    bytes.offset(byte_len as isize) as usize,
-                    field.as_ptr().offset(count as isize) as usize
-                );
+                let (field, rem) = match <_ as flat_serialize::Slice<'_>>::try_ref(input, count) {
+                    Ok((f, b)) => (f, b),
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
+                    }
+                    Err(..) => break 'tryref,
+                };
                 input = rem;
                 data = Some(field);
             }
             {
-                const _: () = [()][(!<u8>::TRIVIAL_COPY) as u8 as usize];
-                let count = (data_len.clone().unwrap() / 2) as usize;
-                let byte_len = <u8>::MIN_LEN * count;
-                if input.len() < byte_len {
-                    return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
-                }
-                let (bytes, rem) = input.split_at(byte_len);
-                let bytes = bytes.as_ptr();
-                let field = ::std::slice::from_raw_parts(bytes.cast::<u8>(), count);
-                debug_assert_eq!(
-                    bytes.offset(byte_len as isize) as usize,
-                    field.as_ptr().offset(count as isize) as usize
-                );
+                let count = (data_len.clone().unwrap() / 3) as usize;
+                let (field, rem) = match <_ as flat_serialize::Slice<'_>>::try_ref(input, count) {
+                    Ok((f, b)) => (f, b),
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
+                    }
+                    Err(..) => break 'tryref,
+                };
                 input = rem;
                 data2 = Some(field);
             }
@@ -284,11 +270,11 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
                         }) as usize
                 })()
                 + (|| {
-                    <u8>::MIN_LEN
+                    <[u8; 2]>::MIN_LEN
                         * (match data_len {
                             Some(data_len) => data_len,
                             None => return 0usize,
-                        } / 2) as usize
+                        } / 3) as usize
                 })(),
         ))
     }
@@ -318,35 +304,11 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
         };
         unsafe {
             let count = (data_len) as usize;
-            let data = &data[..count];
-            if <u8>::TRIVIAL_COPY {
-                let size = <u8>::MIN_LEN * count;
-                let (out, rem) = input.split_at_mut(size);
-                let bytes = (data.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
-                let bytes = std::slice::from_raw_parts(bytes, size);
-                out.copy_from_slice(bytes);
-                input = rem;
-            } else {
-                for data in data {
-                    input = data.fill_slice(input);
-                }
-            }
+            input = <_ as flat_serialize::Slice<'_>>::fill_slice(&data, count, input);
         };
         unsafe {
-            let count = ((data_len) / 2) as usize;
-            let data2 = &data2[..count];
-            if <u8>::TRIVIAL_COPY {
-                let size = <u8>::MIN_LEN * count;
-                let (out, rem) = input.split_at_mut(size);
-                let bytes = (data2.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
-                let bytes = std::slice::from_raw_parts(bytes, size);
-                out.copy_from_slice(bytes);
-                input = rem;
-            } else {
-                for data2 in data2 {
-                    input = data2.fill_slice(input);
-                }
-            }
+            let count = ((data_len) / 3) as usize;
+            input = <_ as flat_serialize::Slice<'_>>::fill_slice(&data2, count, input);
         }
         debug_assert_eq!(input.len(), 0);
         rem
@@ -365,11 +327,11 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for Basic<'input> {
             + <u64 as flat_serialize::FlatSerializable>::len(&header)
             + <u32 as flat_serialize::FlatSerializable>::len(&data_len)
             + <[u16; 3] as flat_serialize::FlatSerializable>::len(&array)
-            + (::std::mem::size_of::<u8>() * (data_len) as usize)
-            + (::std::mem::size_of::<u8>() * ((data_len) / 2) as usize)
+            + (<_ as flat_serialize::Slice<'_>>::len(&data, (data_len) as usize))
+            + (<_ as flat_serialize::Slice<'_>>::len(&data2, ((data_len) / 3) as usize))
     }
 }
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Optional {
     pub header: u64,
     pub optional_field: Option<u32>,
@@ -439,28 +401,28 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Optional {
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (
-            <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
-            min_align,
-        ) {
+        let ty_align = <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        match (
-            Some(<u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
-            min_align,
-        ) {
+        let ty_align = {
+            let ty_provied = <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+            match ty_provied {
+                Some(align) => Some(align),
+                None => Some(<u32 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
+            }
+        };
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        match (
-            <u16 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
-            min_align,
-        ) {
+        let ty_align = <u16 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
@@ -491,6 +453,7 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Optional {
         size
     };
     const TRIVIAL_COPY: bool = false;
+    type SLICE = flat_serialize::Iterable<'a, Optional>;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
     unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
@@ -663,19 +626,15 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
     const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
         use std::mem::align_of;
         let mut min_align: Option<usize> = None;
-        match (
-            <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
-            min_align,
-        ) {
+        let ty_align = <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
             _ => (),
         }
-        match (
-            <Basic as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT,
-            min_align,
-        ) {
+        let ty_align = <Basic as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
             (None, _) => (),
             (Some(align), None) => min_align = Some(align),
             (Some(align), Some(min)) if align < min => min_align = Some(align),
@@ -705,6 +664,7 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
         size
     };
     const TRIVIAL_COPY: bool = false;
+    type SLICE = flat_serialize::Iterable<'a, Nested<'a>>;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
     unsafe fn try_ref(mut input: &'a [u8]) -> Result<(Self, &'a [u8]), flat_serialize::WrapErr> {
@@ -779,9 +739,381 @@ unsafe impl<'a> flat_serialize::FlatSerializable<'a> for Nested<'a> {
     }
 }
 #[derive(Copy, Clone, Debug)]
+pub struct NestedOptional {
+    pub present: u64,
+    pub val: Option<Optional>,
+}
+#[allow(unused_assignments)]
+const _: () = {
+    use std::mem::{align_of, size_of};
+    let mut current_size = 0;
+    let mut min_align = 8;
+    let _alignment_check: () =
+        [()][(current_size) % <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    current_size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    let _alignment_check: () =
+        [()][(current_size) % <Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()]
+        [(<Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+            as usize];
+    if <Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
+        min_align = <Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+    }
+    min_align = match <Optional as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+};
+const _: () = {
+    fn present<'test, T: flat_serialize::FlatSerializable<'test>>() {}
+    let _ = present::<u64>;
+    fn val<'test, T: flat_serialize::FlatSerializable<'test>>() {}
+    let _ = val::<Optional>;
+};
+unsafe impl<'a> flat_serialize::FlatSerializable<'a> for NestedOptional {
+    const REQUIRED_ALIGNMENT: usize = {
+        use std::mem::align_of;
+        let mut required_alignment = 1;
+        let alignment = <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        let alignment = <Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        required_alignment
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
+        use std::mem::align_of;
+        let mut min_align: Option<usize> = None;
+        let ty_align = <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        let ty_align = {
+            let ty_provied = <Optional as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+            match ty_provied {
+                Some(align) => Some(align),
+                None => Some(<Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT),
+            }
+        };
+        match (ty_align, min_align) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        match min_align {
+            None => None,
+            Some(min_align) => {
+                let min_size = Self::MIN_LEN;
+                if min_size % 8 == 0 && min_align >= 8 {
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
+                }
+            }
+        }
+    };
+    const MIN_LEN: usize = {
+        use std::mem::size_of;
+        let mut size = 0;
+        size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+        size += 0;
+        size
+    };
+    const TRIVIAL_COPY: bool = false;
+    type SLICE = flat_serialize::Iterable<'a, NestedOptional>;
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    unsafe fn try_ref(mut input: &[u8]) -> Result<(Self, &[u8]), flat_serialize::WrapErr> {
+        if input.len() < Self::MIN_LEN {
+            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
+        }
+        let __packet_macro_read_len = 0usize;
+        let mut present: Option<u64> = None;
+        let mut val: Option<Optional> = None;
+        'tryref: loop {
+            {
+                let (field, rem) = match <u64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                present = Some(field);
+            }
+            if present.clone().unwrap() > 2 {
+                let (field, rem) = match <Optional>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                val = Some(field);
+            }
+            let _ref = NestedOptional {
+                present: present.unwrap(),
+                val: val,
+            };
+            return Ok((_ref, input));
+        }
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
+            0 + <u64>::MIN_LEN
+                + (|| {
+                    if match present {
+                        Some(present) => present,
+                        None => return 0usize,
+                    } > 2
+                    {
+                        <Optional>::MIN_LEN
+                    } else {
+                        0
+                    }
+                })(),
+        ))
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
+        let &NestedOptional { present, val } = self;
+        unsafe {
+            input = present.fill_slice(input);
+        };
+        unsafe {
+            if (present) > 2 {
+                let val: &Optional = val.as_ref().unwrap();
+                input = val.fill_slice(input);
+            }
+        }
+        debug_assert_eq!(input.len(), 0);
+        rem
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    fn len(&self) -> usize {
+        let &NestedOptional { present, val } = self;
+        0usize
+            + <u64 as flat_serialize::FlatSerializable>::len(&present)
+            + (if (present) > 2 {
+                <Optional as flat_serialize::FlatSerializable>::len(val.as_ref().unwrap())
+            } else {
+                0
+            })
+    }
+}
+#[derive(Copy, Clone, Debug)]
+pub struct NestedSlice<'b> {
+    pub num_vals: u64,
+    pub vals: <Optional as flat_serialize::FlatSerializable<'b>>::SLICE,
+}
+#[allow(unused_assignments)]
+const _: () = {
+    use std::mem::{align_of, size_of};
+    let mut current_size = 0;
+    let mut min_align = 8;
+    let _alignment_check: () =
+        [()][(current_size) % <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()][(<u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+        > min_align) as u8 as usize];
+    current_size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+    min_align = match <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+    let _alignment_check: () =
+        [()][(current_size) % <Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT];
+    let _alignment_check2: () = [()]
+        [(<Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT > min_align) as u8
+            as usize];
+    if <Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT < min_align {
+        min_align = <Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT
+    }
+    min_align = match <Optional as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT {
+        Some(align) if align < min_align => align,
+        _ => min_align,
+    };
+};
+const _: () = {
+    fn num_vals<'test, T: flat_serialize::FlatSerializable<'test>>() {}
+    let _ = num_vals::<u64>;
+    fn vals<'test, T: flat_serialize::FlatSerializable<'test>>() {}
+    let _ = vals::<Optional>;
+};
+unsafe impl<'b> flat_serialize::FlatSerializable<'b> for NestedSlice<'b> {
+    const REQUIRED_ALIGNMENT: usize = {
+        use std::mem::align_of;
+        let mut required_alignment = 1;
+        let alignment = <u64 as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        let alignment = <Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT;
+        if alignment > required_alignment {
+            required_alignment = alignment;
+        }
+        required_alignment
+    };
+    const MAX_PROVIDED_ALIGNMENT: Option<usize> = {
+        use std::mem::align_of;
+        let mut min_align: Option<usize> = None;
+        let ty_align = <u64 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
+        match (ty_align, min_align) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        let ty_align = { Some(<Optional as flat_serialize::FlatSerializable>::REQUIRED_ALIGNMENT) };
+        match (ty_align, min_align) {
+            (None, _) => (),
+            (Some(align), None) => min_align = Some(align),
+            (Some(align), Some(min)) if align < min => min_align = Some(align),
+            _ => (),
+        }
+        match min_align {
+            None => None,
+            Some(min_align) => {
+                let min_size = Self::MIN_LEN;
+                if min_size % 8 == 0 && min_align >= 8 {
+                    Some(8)
+                } else if min_size % 4 == 0 && min_align >= 4 {
+                    Some(4)
+                } else if min_size % 2 == 0 && min_align >= 2 {
+                    Some(2)
+                } else {
+                    Some(1)
+                }
+            }
+        }
+    };
+    const MIN_LEN: usize = {
+        use std::mem::size_of;
+        let mut size = 0;
+        size += <u64 as flat_serialize::FlatSerializable>::MIN_LEN;
+        size += 0;
+        size
+    };
+    const TRIVIAL_COPY: bool = false;
+    type SLICE = flat_serialize::Iterable<'b, NestedSlice<'b>>;
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    unsafe fn try_ref(mut input: &'b [u8]) -> Result<(Self, &'b [u8]), flat_serialize::WrapErr> {
+        if input.len() < Self::MIN_LEN {
+            return Err(flat_serialize::WrapErr::NotEnoughBytes(Self::MIN_LEN));
+        }
+        let __packet_macro_read_len = 0usize;
+        let mut num_vals: Option<u64> = None;
+        let mut vals: Option<<Optional as flat_serialize::FlatSerializable<'_>>::SLICE> = None;
+        'tryref: loop {
+            {
+                let (field, rem) = match <u64>::try_ref(input) {
+                    Ok((f, b)) => (f, b),
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                num_vals = Some(field);
+            }
+            {
+                let count = (num_vals.clone().unwrap()) as usize;
+                let (field, rem) = match <_ as flat_serialize::Slice<'_>>::try_ref(input, count) {
+                    Ok((f, b)) => (f, b),
+                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                        return Err(flat_serialize::WrapErr::InvalidTag(
+                            __packet_macro_read_len + offset,
+                        ))
+                    }
+                    Err(..) => break 'tryref,
+                };
+                input = rem;
+                vals = Some(field);
+            }
+            let _ref = NestedSlice {
+                num_vals: num_vals.unwrap(),
+                vals: vals.unwrap(),
+            };
+            return Ok((_ref, input));
+        }
+        Err(flat_serialize::WrapErr::NotEnoughBytes(
+            0 + <u64>::MIN_LEN
+                + (|| {
+                    <Optional>::MIN_LEN
+                        * (match num_vals {
+                            Some(num_vals) => num_vals,
+                            None => return 0usize,
+                        }) as usize
+                })(),
+        ))
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    unsafe fn fill_slice<'out>(
+        &self,
+        input: &'out mut [std::mem::MaybeUninit<u8>],
+    ) -> &'out mut [std::mem::MaybeUninit<u8>] {
+        let total_len = self.len();
+        let (mut input, rem) = input.split_at_mut(total_len);
+        let &NestedSlice { num_vals, vals } = self;
+        unsafe {
+            input = num_vals.fill_slice(input);
+        };
+        unsafe {
+            let count = (num_vals) as usize;
+            input = <_ as flat_serialize::Slice<'_>>::fill_slice(&vals, count, input);
+        }
+        debug_assert_eq!(input.len(), 0);
+        rem
+    }
+    #[allow(unused_assignments, unused_variables)]
+    #[inline(always)]
+    fn len(&self) -> usize {
+        let &NestedSlice { num_vals, vals } = self;
+        0usize
+            + <u64 as flat_serialize::FlatSerializable>::len(&num_vals)
+            + (<_ as flat_serialize::Slice<'_>>::len(&vals, (num_vals) as usize))
+    }
+}
+#[derive(Copy, Clone, Debug)]
 pub enum BasicEnum<'input> {
-    First { data_len: u32, data: &'input [u8] },
-    Fixed { array: [u16; 3] },
+    First {
+        data_len: u32,
+        data: <u8 as flat_serialize::FlatSerializable<'input>>::SLICE,
+    },
+    Fixed {
+        array: [u16; 3],
+    },
 }
 #[allow(unused_assignments)]
 const _: () = {
@@ -916,7 +1248,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
                     Some(a) => Some(a),
                     None => Some(8),
                 };
-            let alignment = { <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            let alignment = <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
@@ -956,8 +1288,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
                     Some(a) => Some(a),
                     None => Some(8),
                 };
-            let alignment =
-                { <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            let alignment = <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
@@ -1024,6 +1355,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
         }
     };
     const TRIVIAL_COPY: bool = false;
+    type SLICE = flat_serialize::Iterable<'input, BasicEnum<'input>>;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
     unsafe fn try_ref(
@@ -1048,7 +1380,8 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
             match k {
                 Some(2) => {
                     let mut data_len: Option<u32> = None;
-                    let mut data: Option<&[u8]> = None;
+                    let mut data: Option<<u8 as flat_serialize::FlatSerializable<'_>>::SLICE> =
+                        None;
                     'tryref_0: loop {
                         {
                             let (field, rem) = match <u32>::try_ref(input) {
@@ -1064,19 +1397,17 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
                             data_len = Some(field);
                         }
                         {
-                            const _: () = [()][(!<u8>::TRIVIAL_COPY) as u8 as usize];
                             let count = (data_len.clone().unwrap()) as usize;
-                            let byte_len = <u8>::MIN_LEN * count;
-                            if input.len() < byte_len {
-                                return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
-                            }
-                            let (bytes, rem) = input.split_at(byte_len);
-                            let bytes = bytes.as_ptr();
-                            let field = ::std::slice::from_raw_parts(bytes.cast::<u8>(), count);
-                            debug_assert_eq!(
-                                bytes.offset(byte_len as isize) as usize,
-                                field.as_ptr().offset(count as isize) as usize
-                            );
+                            let (field, rem) =
+                                match <_ as flat_serialize::Slice<'_>>::try_ref(input, count) {
+                                    Ok((f, b)) => (f, b),
+                                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                        return Err(flat_serialize::WrapErr::InvalidTag(
+                                            __packet_macro_read_len + offset,
+                                        ))
+                                    }
+                                    Err(..) => break 'tryref_0,
+                                };
                             input = rem;
                             data = Some(field);
                         }
@@ -1148,20 +1479,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
                 };
                 unsafe {
                     let count = (data_len) as usize;
-                    let data = &data[..count];
-                    if <u8>::TRIVIAL_COPY {
-                        let size = <u8>::MIN_LEN * count;
-                        let (out, rem) = input.split_at_mut(size);
-                        let bytes =
-                            (data.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
-                        let bytes = std::slice::from_raw_parts(bytes, size);
-                        out.copy_from_slice(bytes);
-                        input = rem;
-                    } else {
-                        for data in data {
-                            input = data.fill_slice(input);
-                        }
-                    }
+                    input = <_ as flat_serialize::Slice<'_>>::fill_slice(&data, count, input);
                 }
             }
             &BasicEnum::Fixed { array } => {
@@ -1183,7 +1501,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for BasicEnum<'inpu
             &BasicEnum::First { data_len, data } => {
                 ::std::mem::size_of::<u64>()
                     + <u32 as flat_serialize::FlatSerializable>::len(&data_len)
-                    + (::std::mem::size_of::<u8>() * (data_len) as usize)
+                    + (<_ as flat_serialize::Slice<'_>>::len(&data, (data_len) as usize))
             }
             &BasicEnum::Fixed { array } => {
                 ::std::mem::size_of::<u64>()
@@ -1197,7 +1515,7 @@ pub enum PaddedEnum<'input> {
     First {
         padding: [u8; 3],
         data_len: u32,
-        data: &'input [u8],
+        data: <u8 as flat_serialize::FlatSerializable<'input>>::SLICE,
     },
     Fixed {
         padding: u8,
@@ -1369,15 +1687,14 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                     Some(a) => Some(a),
                     None => Some(8),
                 };
-            let alignment =
-                { <[u8; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            let alignment = <[u8; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
                 (Some(align), Some(min)) if align < min => min_align = Some(align),
                 _ => (),
             }
-            let alignment = { <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            let alignment = <u32 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
@@ -1418,15 +1735,14 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                     Some(a) => Some(a),
                     None => Some(8),
                 };
-            let alignment = { <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            let alignment = <u8 as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
                 (Some(align), Some(min)) if align < min => min_align = Some(align),
                 _ => (),
             }
-            let alignment =
-                { <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT };
+            let alignment = <[u16; 3] as flat_serialize::FlatSerializable>::MAX_PROVIDED_ALIGNMENT;
             match (alignment, min_align) {
                 (None, _) => (),
                 (Some(align), None) => min_align = Some(align),
@@ -1496,6 +1812,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
         }
     };
     const TRIVIAL_COPY: bool = false;
+    type SLICE = flat_serialize::Iterable<'input, PaddedEnum<'input>>;
     #[allow(unused_assignments, unused_variables)]
     #[inline(always)]
     unsafe fn try_ref(
@@ -1521,7 +1838,8 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                 Some(2) => {
                     let mut padding: Option<[u8; 3]> = None;
                     let mut data_len: Option<u32> = None;
-                    let mut data: Option<&[u8]> = None;
+                    let mut data: Option<<u8 as flat_serialize::FlatSerializable<'_>>::SLICE> =
+                        None;
                     'tryref_0: loop {
                         {
                             let (field, rem) = match <[u8; 3]>::try_ref(input) {
@@ -1550,19 +1868,17 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                             data_len = Some(field);
                         }
                         {
-                            const _: () = [()][(!<u8>::TRIVIAL_COPY) as u8 as usize];
                             let count = (data_len.clone().unwrap()) as usize;
-                            let byte_len = <u8>::MIN_LEN * count;
-                            if input.len() < byte_len {
-                                return Err(flat_serialize::WrapErr::NotEnoughBytes(byte_len));
-                            }
-                            let (bytes, rem) = input.split_at(byte_len);
-                            let bytes = bytes.as_ptr();
-                            let field = ::std::slice::from_raw_parts(bytes.cast::<u8>(), count);
-                            debug_assert_eq!(
-                                bytes.offset(byte_len as isize) as usize,
-                                field.as_ptr().offset(count as isize) as usize
-                            );
+                            let (field, rem) =
+                                match <_ as flat_serialize::Slice<'_>>::try_ref(input, count) {
+                                    Ok((f, b)) => (f, b),
+                                    Err(flat_serialize::WrapErr::InvalidTag(offset)) => {
+                                        return Err(flat_serialize::WrapErr::InvalidTag(
+                                            __packet_macro_read_len + offset,
+                                        ))
+                                    }
+                                    Err(..) => break 'tryref_0,
+                                };
                             input = rem;
                             data = Some(field);
                         }
@@ -1658,20 +1974,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                 };
                 unsafe {
                     let count = (data_len) as usize;
-                    let data = &data[..count];
-                    if <u8>::TRIVIAL_COPY {
-                        let size = <u8>::MIN_LEN * count;
-                        let (out, rem) = input.split_at_mut(size);
-                        let bytes =
-                            (data.as_ptr() as *const u8).cast::<std::mem::MaybeUninit<u8>>();
-                        let bytes = std::slice::from_raw_parts(bytes, size);
-                        out.copy_from_slice(bytes);
-                        input = rem;
-                    } else {
-                        for data in data {
-                            input = data.fill_slice(input);
-                        }
-                    }
+                    input = <_ as flat_serialize::Slice<'_>>::fill_slice(&data, count, input);
                 }
             }
             &PaddedEnum::Fixed { padding, array } => {
@@ -1701,7 +2004,7 @@ unsafe impl<'input> flat_serialize::FlatSerializable<'input> for PaddedEnum<'inp
                 ::std::mem::size_of::<u8>()
                     + <[u8; 3] as flat_serialize::FlatSerializable>::len(&padding)
                     + <u32 as flat_serialize::FlatSerializable>::len(&data_len)
-                    + (::std::mem::size_of::<u8>() * (data_len) as usize)
+                    + (<_ as flat_serialize::Slice<'_>>::len(&data, (data_len) as usize))
             }
             &PaddedEnum::Fixed { padding, array } => {
                 ::std::mem::size_of::<u8>()
